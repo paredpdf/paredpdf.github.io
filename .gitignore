@@ -2,3 +2,6 @@
 *.pdf
 node_modules/
 .DS_Store
+test-results/
+playwright-report/
+test/e2e/.fixtures/
