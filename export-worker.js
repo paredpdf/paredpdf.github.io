@@ -15,9 +15,12 @@ async function encodeJpeg(rgb, w, h, quality) {
 }
 
 self.onmessage = async (e) => {
-  const { id, bytes, opts } = e.data;
+  const { id, opts } = e.data;
+  // Hand the bytes over without keeping a reference here, so they can be
+  // freed once mupdf has its own copy.
+  const take = (msg) => { const b = msg.bytes; msg.bytes = null; return b; };
   try {
-    const r = await processPdf(mupdf, bytes, {
+    const r = await processPdf(mupdf, take(e.data), {
       ...opts,
       encodeJpeg: typeof OffscreenCanvas === 'function' ? encodeJpeg : null,
     }, (p) => self.postMessage({ type: 'progress', id, ...p }));

@@ -76,11 +76,12 @@ async function open(file) {
   el.saveText.textContent = '';
 
   try {
+    // pdf.js takes ownership of this buffer (it moves to its worker). The
+    // export re-reads the file instead of keeping a second copy in memory.
     const bytes = new Uint8Array(await file.arrayBuffer());
-    // pdf.js may take ownership of the buffer it is given, so hand it a copy.
-    const pdf = await pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false, ...PDFJS_ASSETS }).promise;
+    const pdf = await pdfjsLib.getDocument({ data: bytes, isEvalSupported: false, ...PDFJS_ASSETS }).promise;
     if (my !== session) return;
-    state = { file, bytes, pdf, n: pdf.numPages, page: 1, groups: [], groupOf: [], selected: null, lastToggled: null, thumbs: [] };
+    state = { file, pdf, n: pdf.numPages, page: 1, groups: [], groupOf: [], selected: null, lastToggled: null, thumbs: [] };
     state.selected = new Uint8Array(state.n + 1).fill(1);
     await collectGroups(my);
     if (my !== session) return;
@@ -624,7 +625,7 @@ async function exportPdf() {
     await warmWorker();
     if (my !== session) return;
     const id = ++jobId;
-    const copy = state.bytes.slice();
+    const data = new Uint8Array(await state.file.arrayBuffer());
     const result = await new Promise((resolve, reject) => {
       pending.set(id, {
         resolve, reject,
@@ -639,7 +640,8 @@ async function exportPdf() {
           }
         },
       });
-      worker.postMessage({ id, bytes: copy, opts: { boxes, keep: pages.map((p) => p - 1), compress } }, [copy.buffer]);
+      // Transferred, not copied: the worker owns the only copy from here on.
+      worker.postMessage({ id, bytes: data, opts: { boxes, keep: pages.map((p) => p - 1), compress } }, [data.buffer]);
     });
     retireWorker();
     if (my !== session) return;

@@ -19,6 +19,7 @@ const SKIP_FILTERS = new Set(['JBIG2Decode', 'CCITTFaxDecode']);
 export async function processPdf(mupdf, bytes, opts, progress = () => {}) {
   progress({ phase: 'open' });
   const doc = new mupdf.PDFDocument(bytes);
+  bytes = null; // mupdf has its own copy; let the caller's buffer be freed
   const n = doc.countPages();
 
   opts.boxes?.forEach((b, i) => {
