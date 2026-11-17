@@ -651,6 +651,14 @@ async function exportPdf() {
   }
 }
 
+/* ---------- offline support ---------- */
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('offline support unavailable', err));
+  });
+}
+
 /* ---------- helpers ---------- */
 
 function showError(msg) { el.error.textContent = msg; el.error.hidden = false; el.progress.hidden = true; }

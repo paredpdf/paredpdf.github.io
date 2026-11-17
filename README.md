@@ -40,6 +40,7 @@ The tests use Node's built-in test runner and cover page detection (`detect.js`)
   - **Skipped images:** 1-bit, tiny, and already-JPEG images at a sensible resolution. Also lossless images that compress well (logos, screenshots), since JPEG would only blur them.
   - Soft masks (transparency) are resized along with their image.
   - Saves with garbage collection, so skipped pages' images are actually removed.
+- `sw.js` is the service worker that makes the site work offline after the first visit. App files are network-first (so deploys show up on the next load), and `vendor/` is cache-first under a cache name that includes the library versions.
 - `export-worker.js` runs the engine off the main thread and uses the browser's JPEG encoder (4:2:0 chroma, much smaller than mupdf's 4:4:4).
 
 pdf.js 4.10.38 and mupdf 1.28.1 are served from `vendor/`, so the site makes no third-party requests. `npm run vendor` copies them from `node_modules` after a version change, and a test fails if `vendor/` drifts from `package.json`. The mupdf engine (10 MB) starts loading in the background once analysis finishes.

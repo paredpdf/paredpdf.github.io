@@ -147,3 +147,16 @@ test('links a valid web app manifest with its icons', async ({ page, request }) 
   expect(manifest.display).toBe('standalone');
   for (const icon of manifest.icons) expect((await request.get(icon.src)).ok()).toBe(true);
 });
+
+test('works offline after the first visit', async ({ page, context }) => {
+  await page.goto('/');
+  await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+  await page.reload(); // now controlled by the service worker
+  await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+  await context.setOffline(true);
+  await load(page);
+  await expect(page.locator('#detectText')).toContainText('9:16 portrait');
+  const { pages, filters } = summarise(await download(page));
+  expect(pages).toHaveLength(6);
+  expect(filters).toEqual(['DCTDecode']);
+});
