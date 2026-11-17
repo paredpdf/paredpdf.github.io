@@ -132,3 +132,82 @@ export function nameRatio(w, h) {
   const hit = RATIOS.find((rt) => Math.abs(rt.r - r) / rt.r < 0.006);
   return hit ? hit.label : null;
 }
+
+/* ---------- exact detection from the PDF's own clip ---------- */
+
+// Exporters such as Keynote draw each slide inside a rectangular clip the
+// size of the real page. pageClipRects reads the rectangular clips from a
+// pdf.js operator list and returns them in PDF user space as
+// [x0, y0, x1, y1], outermost first. OPS is pdfjsLib.OPS.
+export function pageClipRects(fnArray, argsArray, OPS) {
+  const rects = [];
+  let ctm = [1, 0, 0, 1, 0, 0];
+  const stack = [];
+  let pending = null; // a lone rectangle path that a clip may use
+  for (let i = 0; i < fnArray.length; i++) {
+    const fn = fnArray[i], args = argsArray[i];
+    if (fn === OPS.save) stack.push(ctm);
+    else if (fn === OPS.restore) ctm = stack.pop() ?? [1, 0, 0, 1, 0, 0];
+    else if (fn === OPS.transform) ctm = mulMatrix(args, ctm);
+    else if (fn === OPS.paintFormXObjectBegin) { stack.push(ctm); if (args?.[0]) ctm = mulMatrix(Array.from(args[0]), ctm); }
+    else if (fn === OPS.paintFormXObjectEnd) ctm = stack.pop() ?? ctm;
+    else if (fn === OPS.constructPath) {
+      const [ops, coords] = args;
+      pending = ops.length === 1 && ops[0] === OPS.rectangle ? Array.from(coords).slice(0, 4) : null;
+      continue;
+    } else if ((fn === OPS.clip || fn === OPS.eoClip) && pending) {
+      const r = transformRect(pending, ctm);
+      if (r) rects.push(r);
+    }
+    if (fn !== OPS.clip && fn !== OPS.eoClip && fn !== OPS.endPath) pending = null;
+  }
+  return rects;
+}
+
+function mulMatrix(m, n) {
+  return [
+    m[0] * n[0] + m[1] * n[2], m[0] * n[1] + m[1] * n[3],
+    m[2] * n[0] + m[3] * n[2], m[2] * n[1] + m[3] * n[3],
+    m[4] * n[0] + m[5] * n[2] + n[4], m[4] * n[1] + m[5] * n[3] + n[5],
+  ];
+}
+
+// [x, y, w, h] through matrix m; null unless the result is axis-aligned.
+function transformRect([x, y, w, h], m) {
+  if (Math.abs(m[1]) > 1e-6 || Math.abs(m[2]) > 1e-6) {
+    if (Math.abs(m[0]) > 1e-6 || Math.abs(m[3]) > 1e-6) return null;
+  }
+  const pts = [[x, y], [x + w, y + h]].map(([px, py]) => [m[0] * px + m[2] * py + m[4], m[1] * px + m[3] * py + m[5]]);
+  return [Math.min(pts[0][0], pts[1][0]), Math.min(pts[0][1], pts[1][1]), Math.max(pts[0][0], pts[1][0]), Math.max(pts[0][1], pts[1][1])];
+}
+
+// A normalised clip that could be a page: on the sheet, at least a fifth of
+// it, and not the whole sheet.
+export function isPageLikeClip(b) {
+  if (!b) return false;
+  const fw = b.x1 - b.x0, fh = b.y1 - b.y0;
+  const inside = b.x0 > -0.002 && b.y0 > -0.002 && b.x1 < 1.002 && b.y1 < 1.002;
+  return inside && fw * fh >= 0.2 && (fw < 0.98 || fh < 0.98);
+}
+
+// Decide whether the clips agree on a real page. `clips` holds, per sampled
+// page, that page's outermost page-like clip as a normalised box (or null).
+// Returns a detection like detectPageBox's, with confidence 'exact', or null.
+export function clipPageBox(clips, content, W, H) {
+  const good = clips.filter(isPageLikeClip);
+  if (!clips.length || good.length < Math.ceil(clips.length * 0.8)) return null;
+  const tol = 1 / Math.max(W, H); // about one point
+  const ref = good[0];
+  const same = (b) => ['x0', 'y0', 'x1', 'y1'].every((k) => Math.abs(b[k] - ref[k]) <= tol);
+  if (!good.every(same)) return null;
+  const box = {
+    x0: Math.max(0, ref.x0), y0: Math.max(0, ref.y0), x1: Math.min(1, ref.x1), y1: Math.min(1, ref.y1),
+  };
+  // Everything visible has to be inside the clip, or it isn't the page.
+  if (content && (content.x0 < box.x0 - 2 * tol || content.y0 < box.y0 - 2 * tol
+      || content.x1 > box.x1 + 2 * tol || content.y1 > box.y1 + 2 * tol)) return null;
+  const w = (box.x1 - box.x0) * W, h = (box.y1 - box.y0) * H;
+  const ratio = RATIOS.find((rt) => Math.abs(rt.r - w / h) / rt.r < 0.006) || null;
+  const centred = Math.abs((box.x0 + box.x1) / 2 - 0.5) < 0.01 && Math.abs((box.y0 + box.y1) / 2 - 0.5) < 0.01;
+  return { box, ratio, confidence: 'exact', reason: 'clip', centred };
+}

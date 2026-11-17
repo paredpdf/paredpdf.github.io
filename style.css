@@ -107,7 +107,7 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 .card-h { display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); margin-bottom: 8px; }
 .card p { margin: 0; }
 .badge { font-size: 11px; padding: 2px 8px; border-radius: 99px; text-transform: none; letter-spacing: 0; font-weight: 600; }
-.badge.high { background: var(--ok-soft); color: var(--ok); }
+.badge.high, .badge.exact { background: var(--ok-soft); color: var(--ok); }
 .badge.low { background: var(--warn-soft); color: var(--warn); }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }

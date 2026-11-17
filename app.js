@@ -1,6 +1,7 @@
 import * as pdfjsLib from './vendor/pdfjs/pdf.min.mjs';
 import {
   FULL, RATIOS, findContentBox, unionBoxes, detectPageBox, boxForRatio, padBox, ratiosFor, flipRatioId, nameRatio,
+  pageClipRects, isPageLikeClip, clipPageBox,
 } from './detect.js';
 import { parseRange, formatRange } from './pages.js';
 
@@ -112,7 +113,7 @@ async function collectGroups(my) {
     let g = byKey.get(key);
     if (!g) {
       g = {
-        key, W: vp.width, H: vp.height, pages: [], content: null, detected: null, box: { ...FULL }, mode: 'full',
+        key, W: vp.width, H: vp.height, pages: [], content: null, clips: [], detected: null, box: { ...FULL }, mode: 'full',
         orient: vp.width > vp.height ? 'portrait' : 'landscape', done: false,
       };
       byKey.set(key, g);
@@ -144,10 +145,11 @@ async function analyse(my) {
     if (my !== session) return;
     const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
     g.content = unionBoxes(g.content, findContentBox(img.data, canvas.width, canvas.height));
+    g.clips.push(await outermostPageClip(page));
 
     const last = k === plan.length - 1 || plan[k + 1][0] !== g;
     if (last) {
-      g.detected = detectPageBox(g.content, g.W, g.H);
+      g.detected = clipPageBox(g.clips, g.content, g.W, g.H) || detectPageBox(g.content, g.W, g.H);
       g.done = true;
       setMode(g, 'auto');
     }
@@ -157,6 +159,22 @@ async function analyse(my) {
   el.exportCard.hidden = false;
   refreshPanel();
   warmWorker();
+}
+
+// The outermost rectangular clip on the page that could be the real page,
+// as a normalised box (see clipPageBox), or null.
+async function outermostPageClip(page) {
+  const list = await page.getOperatorList();
+  const vp = page.getViewport({ scale: 1 });
+  for (const r of pageClipRects(list.fnArray, list.argsArray, pdfjsLib.OPS)) {
+    const [ax, ay, bx, by] = vp.convertToViewportRectangle(r);
+    const b = {
+      x0: Math.min(ax, bx) / vp.width, y0: Math.min(ay, by) / vp.height,
+      x1: Math.max(ax, bx) / vp.width, y1: Math.max(ay, by) / vp.height,
+    };
+    if (isPageLikeClip(b)) return b;
+  }
+  return null;
 }
 
 function samplePages(pages) {
@@ -210,15 +228,20 @@ function refreshPanel() {
 
   const d = g.detected;
   el.confidence.className = `badge ${d.confidence}`;
-  el.confidence.textContent = d.confidence === 'high' ? 'Confident' : 'Best guess';
+  el.confidence.textContent = { exact: 'Exact', high: 'Confident' }[d.confidence] || 'Best guess';
   const sheet = fmtSheet(g.W, g.H);
   const dw = (d.box.x1 - d.box.x0) * g.W, dh = (d.box.y1 - d.box.y0) * g.H;
   if (d.reason === 'blank') el.detectText.textContent = 'These pages look blank, so there is nothing to detect.';
   else if (d.reason === 'fills-sheet') el.detectText.textContent = `The content already fills the ${sheet} sheet. It doesn't look letterboxed.`;
   else {
     const shape = d.ratio ? `${d.ratio.label} ${dw < dh ? 'portrait' : 'landscape'}` : `${fmtPt(dw)} × ${fmtPt(dh)} pt`;
-    el.detectText.textContent = `${article(shape)} ${shape} page, centred on the ${sheet} sheet.` +
-      (d.confidence === 'high' ? '' : ' Check the preview and adjust if needed.');
+    if (d.confidence === 'exact') {
+      el.detectText.textContent = `${article(shape)} ${shape} page${d.centred ? ', centred' : ''} on the ${sheet} sheet. `
+        + 'The PDF marks this outline itself, so it\'s exact.';
+    } else {
+      el.detectText.textContent = `${article(shape)} ${shape} page, centred on the ${sheet} sheet.` +
+        (d.confidence === 'high' ? '' : ' Check the preview and adjust if needed.');
+    }
   }
 
   el.groupSel.hidden = state.groups.length < 2;

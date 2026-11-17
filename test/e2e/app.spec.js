@@ -6,9 +6,9 @@ import { FIXTURES } from './make-fixtures.js';
 
 const PDF = path.join(FIXTURES, 'letterboxed.pdf');
 
-async function load(page) {
+async function load(page, file = PDF) {
   await page.goto('/');
-  await page.setInputFiles('#file', PDF);
+  await page.setInputFiles('#file', file);
   await expect(page.locator('#exportCard')).toBeVisible();
 }
 
@@ -34,12 +34,20 @@ function summarise(bytes) {
   return { pages, filters };
 }
 
-test('detects the 9:16 slide on an A4 landscape sheet', async ({ page }) => {
+test('reads the exact page outline when the PDF marks it', async ({ page }) => {
   await load(page);
+  await expect(page.locator('#detectText')).toHaveText(
+    "A 9:16 portrait page, centred on the A4 landscape sheet. The PDF marks this outline itself, so it's exact.");
+  await expect(page.locator('#confidence')).toHaveText('Exact');
+  await expect(page.locator('#rSize')).toHaveText('334.7 × 595 pt');
+  await expect(page.locator('#fmeta')).toContainText('6 pages · A4 landscape');
+});
+
+test('falls back to detecting the page from pixels', async ({ page }) => {
+  await load(page, path.join(FIXTURES, 'letterboxed-noclip.pdf'));
   await expect(page.locator('#detectText')).toHaveText('A 9:16 portrait page, centred on the A4 landscape sheet.');
   await expect(page.locator('#confidence')).toHaveText('Confident');
   await expect(page.locator('#rSize')).toHaveText('334.7 × 595 pt');
-  await expect(page.locator('#fmeta')).toContainText('6 pages · A4 landscape');
 });
 
 test('exports the cropped pages with compressed images', async ({ page }) => {
