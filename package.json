@@ -1,0 +1,10 @@
+{
+  "name": "pared",
+  "private": true,
+  "description": "Fix the page size, crop the margins and shrink PDFs, entirely in the browser.",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}
