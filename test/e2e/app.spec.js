@@ -138,3 +138,12 @@ test('makes no requests outside the site, even while exporting', async ({ page, 
   await download(page);
   expect(external).toEqual([]);
 });
+
+test('links a valid web app manifest with its icons', async ({ page, request }) => {
+  await page.goto('/');
+  const href = await page.locator('link[rel="manifest"]').getAttribute('href');
+  const manifest = await (await request.get(href)).json();
+  expect(manifest.short_name).toBe('Pared');
+  expect(manifest.display).toBe('standalone');
+  for (const icon of manifest.icons) expect((await request.get(icon.src)).ok()).toBe(true);
+});
