@@ -383,9 +383,9 @@ const nextFrame = () => new Promise((r) => setTimeout(r, 0));
 const fmtPt = (v) => (Math.round(v * 10) / 10).toString();
 const fmtMm = (pt) => (Math.round((pt * 25.4 / 72) * 10) / 10).toString();
 function fmtBytes(b) {
-  if (b < 1024) return `${b} B`;
-  if (b < 1024 ** 2) return `${(b / 1024).toFixed(0)} KB`;
-  return `${(b / 1024 ** 2).toFixed(1)} MB`;
+  if (b < 1e3) return `${b} B`;
+  if (b < 1e6) return `${(b / 1e3).toFixed(0)} KB`;
+  return `${(b / 1e6).toFixed(1)} MB`;
 }
 const article = (s) => (/^(a|e|i|o|u|8|11|18)/i.test(s) ? 'An' : 'A');
 function fmtSheet(W, H) {
