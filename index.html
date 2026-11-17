@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TruePage</title>
+  <meta name="description" content="Fix PDFs exported at the wrong page size. Detects the real page and crops to it, entirely in your browser.">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true">
+        <rect x="2" y="7" width="28" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 2.5"/>
+        <rect x="11" y="3" width="10" height="26" rx="1.5" fill="var(--accent)"/>
+      </svg>
+      <span>TruePage</span>
+    </div>
+    <p class="tag">Fix PDFs exported at the wrong page size. <strong>Your file never leaves this device.</strong></p>
+  </header>
+
+  <main>
+    <section id="drop" class="drop" tabindex="0">
+      <input id="file" type="file" accept="application/pdf,.pdf" hidden>
+      <div class="drop-inner">
+        <svg viewBox="0 0 120 80" width="150" aria-hidden="true" class="drop-art">
+          <rect x="4" y="8" width="112" height="64" rx="4" class="sheet"/>
+          <rect x="44" y="8" width="32" height="64" class="page"/>
+          <path d="M30 40h10M90 40h-10" class="arrow"/>
+          <path d="M36 36l4 4-4 4M84 36l-4 4 4 4" class="arrow"/>
+        </svg>
+        <h1>Drop a PDF here</h1>
+        <p>TruePage finds the real page inside a sheet that was exported at the wrong size (a portrait slide on a landscape page, for example) and crops to it.</p>
+        <button class="btn primary" id="pick" type="button">Choose a PDF</button>
+      </div>
+    </section>
+
+    <section id="work" class="work" hidden>
+      <div class="stage-col">
+        <div class="stage-wrap" id="stageWrap">
+          <div class="stage" id="stage">
+            <canvas id="canvas"></canvas>
+            <div class="content-outline" id="contentOutline" hidden></div>
+            <div class="crop" id="crop">
+              <div class="h" data-h="n"></div><div class="h" data-h="s"></div>
+              <div class="h" data-h="e"></div><div class="h" data-h="w"></div>
+              <div class="h c" data-h="nw"></div><div class="h c" data-h="ne"></div>
+              <div class="h c" data-h="sw"></div><div class="h c" data-h="se"></div>
+            </div>
+          </div>
+        </div>
+        <nav class="pager">
+          <button class="btn icon" id="prev" type="button" aria-label="Previous page">‹</button>
+          <span id="pageLabel">Page 1 of 1</span>
+          <button class="btn icon" id="next" type="button" aria-label="Next page">›</button>
+          <label class="toggle"><input type="checkbox" id="showContent" checked> Show detected content</label>
+        </nav>
+      </div>
+
+      <aside class="panel">
+        <div class="file">
+          <div class="fname" id="fname"></div>
+          <div class="meta" id="fmeta"></div>
+        </div>
+
+        <div class="progress" id="progress" hidden>
+          <div class="bar"><span id="progressBar"></span></div>
+          <div class="ptext" id="progressText"></div>
+        </div>
+
+        <div class="card" id="detectCard" hidden>
+          <div class="card-h">
+            <span>Detected page</span>
+            <span class="badge" id="confidence"></span>
+          </div>
+          <p id="detectText"></p>
+          <div class="groupsel" id="groupSel" hidden></div>
+        </div>
+
+        <div class="card" id="boxCard" hidden>
+          <div class="card-h"><span>Keep this area</span></div>
+          <div class="chips" id="chips"></div>
+          <dl class="readout">
+            <dt>Size</dt><dd id="rSize"></dd>
+            <dt>In mm</dt><dd id="rMm"></dd>
+            <dt>Shape</dt><dd id="rRatio"></dd>
+          </dl>
+          <p class="hint">Drag the edges in the preview to fine-tune.</p>
+        </div>
+
+        <div class="actions" id="actions" hidden>
+          <button class="btn primary wide" id="download" type="button">Download cropped PDF</button>
+          <div class="ptext" id="saveText"></div>
+          <button class="btn ghost wide" id="reset" type="button">Start over</button>
+        </div>
+
+        <p class="note">Cropping changes which part of each page is shown. The parts outside are hidden, not deleted, so the file stays about the same size.</p>
+        <div class="error" id="error" hidden></div>
+      </aside>
+    </section>
+  </main>
+</body>
+</html>
