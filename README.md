@@ -17,12 +17,22 @@ python3 -m http.server 8765   # from the repo root
 
 It has to be served over HTTP, because ES modules and workers don't load from `file://`. There's no build step. Deploy the folder as-is to any static host (GitHub Pages, Cloudflare Pages, Vercel).
 
+## Tests
+
+```sh
+npm install
+npm test
+```
+
+The tests use Node's built-in test runner and cover page detection (`detect.js`), page-range parsing (`pages.js`) and the export engine (`pdf-core.js`). The engine tests run against mupdf 1.28.1, the same version the site loads, and build their test PDFs in code. GitHub Actions runs them on every push to `main` and on pull requests.
+
 ## Files
 
 - `detect.js` holds the page detection logic. It has no DOM or pdf.js dependencies.
   - Draws up to 40 pages for each page size and combines the non-background area of all of them.
   - Assumes the real page is centred, so the empty bands on two sides tell it which way to crop.
   - Picks the smallest common aspect ratio that still contains all the content.
+- `pages.js` parses and formats page ranges such as `1-5, 8, 10-`.
 - `app.js` handles the UI: preview, draggable crop box, orientation switch, ratio presets, page thumbnails and selection, and the export controls. It uses pdf.js for rendering.
 - `pdf-core.js` is the export engine, built on mupdf.js. It runs in the browser worker and in Node (handy for tests).
   - Sets the page boxes and keeps only the selected pages.
