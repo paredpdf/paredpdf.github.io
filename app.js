@@ -25,7 +25,7 @@ const el = Object.fromEntries([
   'selCount', 'range', 'rangeErr', 'selAll', 'selNone', 'resetOrder', 'thumbs',
   'fname', 'fmeta', 'progress', 'progressBar', 'progressText',
   'detectCard', 'confidence', 'detectText', 'groupSel',
-  'boxCard', 'orientP', 'orientL', 'chips', 'rSize', 'rMm', 'rRatio',
+  'boxCard', 'scopeAll', 'scopePage', 'scopeHint', 'orientP', 'orientL', 'chips', 'rSize', 'rMm', 'rRatio',
   'exportCard', 'memWarn', 'compress', 'ppiField', 'ppi', 'compressHint', 'download', 'saveProgress', 'saveBar', 'saveText',
   'reset', 'error',
 ].map((id) => [id, $(id)]));
@@ -86,6 +86,7 @@ async function open(file) {
     state = { file, pdf, n: pdf.numPages, page: 1, groups: [], groupOf: [], selected: null, lastToggled: null, thumbs: [], order: [] };
     state.order = Array.from({ length: state.n }, (_, i) => i + 1);
     state.rot = new Int16Array(state.n + 1); // extra clockwise rotation per page
+    state.override = new Map(); // page -> its own crop (see cropOf)
     state.selected = new Uint8Array(state.n + 1).fill(1);
     await collectGroups(my);
     if (my !== session) return;
@@ -124,6 +125,7 @@ async function collectGroups(my) {
         key, W: vp.width, H: vp.height, pages: [], content: null, clips: [], detected: null, box: { ...FULL }, mode: 'full',
         orient: vp.width > vp.height ? 'portrait' : 'landscape', done: false,
       };
+      g.sheet = g; // see cropOf
       byKey.set(key, g);
       state.groups.push(g);
     }
@@ -199,16 +201,23 @@ function samplePages(pages) {
 const ratioOrient = (id) => (!RATIOS.some((r) => r.id === id) || id === '1:1' ? null : id.endsWith('-l') ? 'landscape' : 'portrait');
 const boxOrient = (g, b) => ((b.x1 - b.x0) * g.W > (b.y1 - b.y0) * g.H ? 'landscape' : 'portrait');
 
-function setMode(g, mode) {
-  g.mode = mode;
-  if (mode === 'auto') { g.box = { ...g.detected.box }; g.orient = boxOrient(g, g.box); }
-  else if (mode === 'full') g.box = { ...FULL };
-  else if (mode === 'content') g.box = g.content ? padBox(g.content, 0.01) : { ...FULL };
+// A page's crop: its own if it has one, otherwise the crop shared by every
+// page of its sheet size (its group). Both carry box, mode and orient, plus
+// `sheet`, the group with the sheet size and detection results.
+function cropOf(p) { return state.override.get(p) ?? state.groupOf[p]; }
+function curCrop() { return state && cropOf(state.page); }
+
+function setMode(c, mode) {
+  const g = c.sheet;
+  c.mode = mode;
+  if (mode === 'auto') { c.box = { ...g.detected.box }; c.orient = boxOrient(g, c.box); }
+  else if (mode === 'full') c.box = { ...FULL };
+  else if (mode === 'content') c.box = g.content ? padBox(g.content, 0.01) : { ...FULL };
   else if (mode !== 'custom') {
     const rt = RATIOS.find((r) => r.id === mode);
-    if (rt) g.box = boxForRatio(rt.r, g.W, g.H);
+    if (rt) c.box = boxForRatio(rt.r, g.W, g.H);
   }
-  boxChanged(g);
+  boxChanged(c);
 }
 
 function setOrientation(g, o) {
@@ -218,12 +227,22 @@ function setOrientation(g, o) {
   if (ro && ro !== o) setMode(g, flipRatioId(g.mode));
   else refreshPanel();
 }
-el.orientP.addEventListener('click', () => curGroup()?.done && setOrientation(curGroup(), 'portrait'));
-el.orientL.addEventListener('click', () => curGroup()?.done && setOrientation(curGroup(), 'landscape'));
+el.orientP.addEventListener('click', () => curGroup()?.done && setOrientation(curCrop(), 'portrait'));
+el.orientL.addEventListener('click', () => curGroup()?.done && setOrientation(curCrop(), 'landscape'));
 
-function boxChanged(g) {
-  if (g === curGroup()) { placeOverlay(); refreshPanel(); }
-  layoutThumbs(g);
+el.scopeAll.addEventListener('click', () => {
+  if (state.override.delete(state.page)) boxChanged(curGroup());
+});
+el.scopePage.addEventListener('click', () => {
+  if (state.override.has(state.page)) return;
+  const g = curGroup();
+  state.override.set(state.page, { box: { ...g.box }, mode: g.mode, orient: g.orient, sheet: g });
+  boxChanged(curCrop());
+});
+
+function boxChanged(c) {
+  if (c === curCrop()) { placeOverlay(); refreshPanel(); }
+  layoutThumbs(c.sheet);
 }
 
 function curGroup() { return state?.groupOf[state.page]; }
@@ -231,6 +250,7 @@ function curGroup() { return state?.groupOf[state.page]; }
 function refreshPanel() {
   const g = curGroup();
   if (!g || !g.done) return;
+  const c = curCrop();
   el.detectCard.hidden = false;
   el.boxCard.hidden = false;
 
@@ -261,16 +281,26 @@ function refreshPanel() {
     }));
   }
 
-  el.orientP.setAttribute('aria-pressed', String(g.orient === 'portrait'));
-  el.orientL.setAttribute('aria-pressed', String(g.orient === 'landscape'));
+  const own = state.override.has(state.page);
+  el.scopeAll.setAttribute('aria-pressed', String(!own));
+  el.scopePage.setAttribute('aria-pressed', String(own));
+  el.scopeAll.textContent = state.groups.length > 1 ? 'Pages this size' : 'All pages';
+  const owners = g.pages.filter((p) => state.override.has(p)).length;
+  el.scopeHint.hidden = !owners;
+  el.scopeHint.textContent = own
+    ? `Only page ${state.page} uses this crop. The other pages keep the shared one.`
+    : owners === 1 ? '1 page has its own crop.' : `${owners} pages have their own crop.`;
+
+  el.orientP.setAttribute('aria-pressed', String(c.orient === 'portrait'));
+  el.orientL.setAttribute('aria-pressed', String(c.orient === 'landscape'));
 
   const opts = [['auto', d.ratio ? `Auto (${d.ratio.label})` : 'Auto']];
-  for (const rt of ratiosFor(g.orient)) opts.push([rt.id, rt.label]);
+  for (const rt of ratiosFor(c.orient)) opts.push([rt.id, rt.label]);
   opts.push(['content', 'Fit content'], ['full', 'Whole sheet']);
-  if (g.mode === 'custom') opts.push(['custom', 'Custom']);
-  el.chips.replaceChildren(...opts.map(([id, label]) => chip(label, g.mode === id, () => setMode(g, id))));
+  if (c.mode === 'custom') opts.push(['custom', 'Custom']);
+  el.chips.replaceChildren(...opts.map(([id, label]) => chip(label, c.mode === id, () => setMode(c, id))));
 
-  const w = (g.box.x1 - g.box.x0) * g.W, h = (g.box.y1 - g.box.y0) * g.H;
+  const w = (c.box.x1 - c.box.x0) * g.W, h = (c.box.y1 - c.box.y0) * g.H;
   el.rSize.textContent = `${fmtPt(w)} × ${fmtPt(h)} pt`;
   el.rMm.textContent = `${fmtMm(w)} × ${fmtMm(h)} mm`;
   const named = nameRatio(w, h);
@@ -304,7 +334,6 @@ window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer
 
 async function showPage(n) {
   if (!state || n < 1 || n > state.n) return;
-  const prevGroup = curGroup();
   const prevPage = state.page;
   state.page = n;
   updatePager();
@@ -322,7 +351,7 @@ async function showPage(n) {
   el.stage.style.width = `${cssW}px`;
   el.stage.style.height = `${cssH}px`;
   placeOverlay();
-  if (g !== prevGroup) refreshPanel();
+  refreshPanel(); // the new page may have its own crop
 
   const my = session;
   renderTask?.cancel();
@@ -350,8 +379,8 @@ async function showPage(n) {
 function placeOverlay() {
   const g = curGroup();
   if (!g) return;
-  setRect(el.crop, g.box);
-  setRect(el.shade, g.box);
+  setRect(el.crop, curCrop().box);
+  setRect(el.shade, curCrop().box);
   const showC = el.showContent.checked && g.content;
   el.contentOutline.hidden = !showC;
   if (showC) setRect(el.contentOutline, g.content);
@@ -368,12 +397,12 @@ function setRect(node, b) {
 
 let drag = null, dragFrame = 0;
 el.crop.addEventListener('pointerdown', (e) => {
-  const g = curGroup();
-  if (!g) return;
+  const c = curCrop();
+  if (!c) return;
   e.preventDefault();
   el.crop.setPointerCapture(e.pointerId);
   const r = el.stage.getBoundingClientRect();
-  drag = { g, h: e.target.dataset.h || 'move', sx: e.clientX, sy: e.clientY, w: r.width, h0: r.height, start: { ...g.box } };
+  drag = { c, h: e.target.dataset.h || 'move', sx: e.clientX, sy: e.clientY, w: r.width, h0: r.height, start: { ...c.box } };
 });
 el.crop.addEventListener('pointermove', (e) => {
   if (!drag) return;
@@ -390,14 +419,14 @@ el.crop.addEventListener('pointermove', (e) => {
     if (drag.h.includes('n')) b.y0 = clamp(s.y0 + dy, 0, s.y1 - MIN);
     if (drag.h.includes('s')) b.y1 = clamp(s.y1 + dy, s.y0 + MIN, 1);
   }
-  const g = drag.g;
-  g.box = b;
-  g.mode = 'custom';
-  g.orient = boxOrient(g, b);
+  const c = drag.c;
+  c.box = b;
+  c.mode = 'custom';
+  c.orient = boxOrient(c.sheet, b);
   placeOverlay();
   refreshPanel();
   cancelAnimationFrame(dragFrame);
-  dragFrame = requestAnimationFrame(() => layoutThumbs(g));
+  dragFrame = requestAnimationFrame(() => layoutThumbs(c.sheet));
 });
 const endDrag = () => { drag = null; };
 el.crop.addEventListener('pointerup', endDrag);
@@ -473,13 +502,14 @@ function buildThumbs() {
 // Size each tile to the crop box and slide the full-sheet render inside it.
 function layoutThumbs(g) {
   if (!state?.thumbs.length) return;
-  const b = g.box;
-  const bw = (b.x1 - b.x0) * g.W, bh = (b.y1 - b.y0) * g.H;
-  let w = THUMB_W, h = (THUMB_W * bh) / bw;
-  if (h > THUMB_MAX_H) { w = (w * THUMB_MAX_H) / h; h = THUMB_MAX_H; }
-  const cw = w / (b.x1 - b.x0), ch = (cw * g.H) / g.W;
   for (const p of g.pages) {
+    const b = cropOf(p).box;
+    const bw = (b.x1 - b.x0) * g.W, bh = (b.y1 - b.y0) * g.H;
+    let w = THUMB_W, h = (THUMB_W * bh) / bw;
+    if (h > THUMB_MAX_H) { w = (w * THUMB_MAX_H) / h; h = THUMB_MAX_H; }
+    const cw = w / (b.x1 - b.x0), ch = (cw * g.H) / g.W;
     const t = state.thumbs[p];
+    t.el.classList.toggle('own', state.override.has(p));
     Object.assign(t.clip.style, { width: `${w}px`, height: `${h}px` });
     Object.assign(t.clip.parentElement.style, { width: `${w}px`, height: `${h}px` });
     // Show the page turned, scaled to fit the same footprint when on its side.
@@ -746,7 +776,7 @@ async function exportPdf() {
     // boxes that don't start at 0,0.
     const boxes = [];
     for (let i = 1; i <= state.n; i++) {
-      const b = state.groupOf[i].box;
+      const b = cropOf(i).box;
       if (!state.selected[i] || (b.x0 === 0 && b.y0 === 0 && b.x1 === 1 && b.y1 === 1)) { boxes.push(null); continue; }
       const vp = (await state.pdf.getPage(i)).getViewport({ scale: 1 });
       const [ax, ay] = vp.convertToPdfPoint(b.x0 * vp.width, b.y0 * vp.height);

@@ -295,3 +295,41 @@ test('four turns bring a page back to upright', async ({ page }) => {
   await expect(page.locator('#rotBadge')).toBeHidden();
   await expect(page.locator('.thumb[data-p="1"] .tclip')).toHaveCSS('transform', 'none');
 });
+
+test('gives one page its own crop', async ({ page }) => {
+  await load(page);
+  await page.click('.thumb[data-p="2"] .tclip');
+  await page.click('#scopePage');
+  await page.click('#chips .chip:text-is("3:4")');
+  await expect(page.locator('#rSize')).toHaveText('446.3 × 595 pt');
+  await expect(page.locator('#scopeHint')).toHaveText('Only page 2 uses this crop. The other pages keep the shared one.');
+  await expect(page.locator('.thumb.own')).toHaveCount(1);
+  // Other pages still use the shared crop.
+  await page.click('.thumb[data-p="3"] .tclip');
+  await expect(page.locator('#rSize')).toHaveText('334.7 × 595 pt');
+  await expect(page.locator('#scopeAll')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#scopeHint')).toHaveText('1 page has its own crop.');
+  const { pages } = summarise(await download(page));
+  expect(pages.map((b) => Math.round(b[2] - b[0]))).toEqual([335, 446, 335, 335, 335, 335]);
+});
+
+test('a page with its own crop can go back to the shared one', async ({ page }) => {
+  await load(page);
+  await page.click('.thumb[data-p="2"] .tclip');
+  await page.click('#scopePage');
+  await page.click('#chips .chip:text-is("1:1")');
+  await page.click('#scopeAll');
+  await expect(page.locator('#rSize')).toHaveText('334.7 × 595 pt');
+  await expect(page.locator('.thumb.own')).toHaveCount(0);
+  await expect(page.locator('#scopeHint')).toBeHidden();
+});
+
+test('changing the shared crop leaves pages with their own crop alone', async ({ page }) => {
+  await load(page);
+  await page.click('.thumb[data-p="2"] .tclip');
+  await page.click('#scopePage');
+  await page.click('.thumb[data-p="1"] .tclip');
+  await page.click('#chips .chip:text-is("1:1")');
+  const { pages } = summarise(await download(page));
+  expect(pages.map((b) => Math.round(b[2] - b[0]))).toEqual([595, 335, 595, 595, 595, 595]);
+});

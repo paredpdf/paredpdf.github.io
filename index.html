@@ -104,6 +104,11 @@
 
         <div class="card" id="boxCard" hidden>
           <div class="card-h"><span>Keep this area</span></div>
+          <div class="seg scope" role="group" aria-label="Apply this crop to">
+            <button type="button" id="scopeAll" aria-pressed="true">All pages</button>
+            <button type="button" id="scopePage" aria-pressed="false">This page only</button>
+          </div>
+          <p class="hint scope-hint" id="scopeHint" hidden></p>
           <div class="seg" role="group" aria-label="Orientation">
             <button type="button" id="orientP" aria-pressed="true">
               <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="4" y="1.5" width="8" height="13" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
