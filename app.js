@@ -11,7 +11,7 @@ const DETECT_PX = 1000;             // longest side of the detection render
 const $ = (id) => document.getElementById(id);
 const el = {
   drop: $('drop'), file: $('file'), pick: $('pick'), work: $('work'),
-  stageWrap: $('stageWrap'), stage: $('stage'), canvas: $('canvas'), crop: $('crop'), contentOutline: $('contentOutline'),
+  stageWrap: $('stageWrap'), stage: $('stage'), canvas: $('canvas'), crop: $('crop'), shade: $('shade'), contentOutline: $('contentOutline'),
   prev: $('prev'), next: $('next'), pageLabel: $('pageLabel'), showContent: $('showContent'),
   fname: $('fname'), fmeta: $('fmeta'), progress: $('progress'), progressBar: $('progressBar'), progressText: $('progressText'),
   detectCard: $('detectCard'), confidence: $('confidence'), detectText: $('detectText'), groupSel: $('groupSel'),
@@ -275,6 +275,7 @@ function placeOverlay() {
   const g = curGroup();
   if (!g) return;
   setRect(el.crop, g.box);
+  setRect(el.shade, g.box);
   const showC = el.showContent.checked && g.content;
   el.contentOutline.hidden = !showC;
   if (showC) setRect(el.contentOutline, g.content);

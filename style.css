@@ -72,13 +72,15 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 .work { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; align-items: start; }
 .stage-col { min-width: 0; }
 .stage-wrap { background: var(--stage); border-radius: var(--radius); padding: 20px; display: grid; place-items: center; min-height: 300px; }
-.stage { position: relative; line-height: 0; touch-action: none; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+.stage { position: relative; line-height: 0; touch-action: none; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+.clip { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 1; }
+.shade { position: absolute; box-shadow: 0 0 0 9999px var(--shade); }
 .stage canvas { display: block; background: #fff; }
 
-.content-outline { position: absolute; border: 1.5px dashed #2a7de1; pointer-events: none; z-index: 1; }
+.content-outline { position: absolute; border: 1.5px dashed #2a7de1; pointer-events: none; z-index: 2; }
 
-.crop { position: absolute; z-index: 2; outline: 2px solid var(--accent); box-shadow: 0 0 0 9999px var(--shade); cursor: move; }
-.h { position: absolute; z-index: 3; }
+.crop { position: absolute; z-index: 3; outline: 2px solid var(--accent); cursor: move; }
+.h { position: absolute; z-index: 4; }
 .h[data-h="n"], .h[data-h="s"] { left: 12px; right: 12px; height: 14px; cursor: ns-resize; }
 .h[data-h="n"] { top: -7px; } .h[data-h="s"] { bottom: -7px; }
 .h[data-h="e"], .h[data-h="w"] { top: 12px; bottom: 12px; width: 14px; cursor: ew-resize; }
