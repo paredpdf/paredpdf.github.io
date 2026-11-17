@@ -41,6 +41,7 @@ test('reads the exact page outline when the PDF marks it', async ({ page }) => {
   await expect(page.locator('#confidence')).toHaveText('Exact');
   await expect(page.locator('#rSize')).toHaveText('334.7 × 595 pt');
   await expect(page.locator('#fmeta')).toContainText('6 pages · A4 landscape');
+  await expect(page.locator('#memWarn')).toBeHidden(); // small file, even on a phone
 });
 
 test('falls back to detecting the page from pixels', async ({ page }) => {

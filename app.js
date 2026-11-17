@@ -4,6 +4,7 @@ import {
   pageClipRects, isPageLikeClip, clipPageBox,
 } from './detect.js';
 import { parseRange, formatRange } from './pages.js';
+import { isLargeForDevice, isMemoryError } from './limits.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdfjs/pdf.worker.min.mjs', import.meta.url).href;
 const PDFJS_ASSETS = {
@@ -25,7 +26,7 @@ const el = Object.fromEntries([
   'fname', 'fmeta', 'progress', 'progressBar', 'progressText',
   'detectCard', 'confidence', 'detectText', 'groupSel',
   'boxCard', 'orientP', 'orientL', 'chips', 'rSize', 'rMm', 'rRatio',
-  'exportCard', 'compress', 'ppiField', 'ppi', 'compressHint', 'download', 'saveProgress', 'saveBar', 'saveText',
+  'exportCard', 'memWarn', 'compress', 'ppiField', 'ppi', 'compressHint', 'download', 'saveProgress', 'saveBar', 'saveText',
   'reset', 'error',
 ].map((id) => [id, $(id)]));
 
@@ -87,6 +88,9 @@ async function open(file) {
     if (my !== session) return;
     const g0 = state.groups[0];
     el.fmeta.textContent = `${fmtBytes(file.size)} · ${state.n} page${state.n > 1 ? 's' : ''} · ${fmtSheet(g0.W, g0.H)}`;
+    el.memWarn.hidden = !isLargeForDevice(file.size, {
+      deviceMemory: navigator.deviceMemory, coarsePointer: matchMedia('(pointer: coarse)').matches,
+    });
     buildThumbs();
     updateSelectionUI();
     showPage(1);
@@ -575,10 +579,13 @@ function warmWorker() {
       const job = pending.get(m.id);
       if (!job) return;
       if (m.type === 'progress') job.onProgress(m);
-      else { pending.delete(m.id); m.type === 'done' ? job.resolve(m) : job.reject(new Error(m.message)); }
+      else { pending.delete(m.id); m.type === 'done' ? job.resolve(m) : job.reject(Object.assign(new Error(m.message), { memory: m.memory })); }
     });
     w.addEventListener('error', (e) => {
-      const err = new Error(e.message || 'The PDF engine failed to load. Check your connection and try again.');
+      const err = Object.assign(
+        new Error(e.message || 'The PDF engine stopped unexpectedly. Try again, or export fewer pages at a time.'),
+        { memory: isMemoryError(e.message) },
+      );
       reject(err);
       for (const job of pending.values()) job.reject(err);
       pending.clear();
@@ -668,9 +675,11 @@ async function exportPdf() {
     retireWorker();
     el.saveProgress.hidden = true;
     say('');
-    showError(/encrypt|password/i.test(err?.message || '')
-      ? 'This PDF is encrypted, so it can’t be rewritten here.'
-      : `Couldn't write the PDF: ${err?.message || err}`);
+    showError(err?.memory || isMemoryError(err)
+      ? 'This device ran out of memory while exporting. Try fewer pages at a time, a lower image resolution, or a computer.'
+      : /encrypt|password/i.test(err?.message || '')
+        ? 'This PDF is encrypted, so it can’t be rewritten here.'
+        : `Couldn't write the PDF: ${err?.message || err}`);
   } finally {
     if (state) el.download.disabled = selectedPages().length === 0;
   }

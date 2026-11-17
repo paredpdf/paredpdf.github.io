@@ -1,6 +1,7 @@
 // Runs the export off the main thread so the page stays responsive.
 import * as mupdf from './vendor/mupdf/mupdf.js';
 import { processPdf } from './pdf-core.js';
+import { isMemoryError } from './limits.js';
 
 // Browser JPEG encoder: 4:2:0 chroma subsampling, much smaller than mupdf's.
 async function encodeJpeg(rgb, w, h, quality) {
@@ -26,7 +27,7 @@ self.onmessage = async (e) => {
     }, (p) => self.postMessage({ type: 'progress', id, ...p }));
     self.postMessage({ type: 'done', id, bytes: r.bytes, stats: r.stats }, [r.bytes.buffer]);
   } catch (err) {
-    self.postMessage({ type: 'error', id, message: String(err?.message || err) });
+    self.postMessage({ type: 'error', id, message: String(err?.message || err), memory: isMemoryError(err) });
   }
 };
 

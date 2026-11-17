@@ -176,3 +176,4 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 #exportCard .progress { margin-top: 10px; }
 .result { margin-top: 6px; font-size: 14px; color: var(--ink); }
 .result strong { color: var(--ok); }
+.warn { background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 8px 10px; font-size: 13px; margin: 0 0 10px; }
