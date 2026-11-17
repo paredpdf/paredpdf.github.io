@@ -9,7 +9,7 @@ const PDF = path.join(FIXTURES, 'letterboxed.pdf');
 async function load(page, file = PDF) {
   await page.goto('/');
   await page.setInputFiles('#file', file);
-  await expect(page.locator('#exportCard')).toBeVisible();
+  await expect(page.locator('#exportCard')).toBeVisible({ timeout: 60_000 });
 }
 
 async function download(page) {
@@ -190,4 +190,15 @@ test('opens a PDF shared from another app', async ({ page }) => {
   expect(new URL(page.url()).search).toBe('');
   // The parked file is removed once opened.
   expect(await page.evaluate(async () => !!(await (await caches.open('pared-share')).match('shared.pdf')))).toBe(false);
+});
+
+test('frees thumbnails scrolled far away and redraws them on return', async ({ page }) => {
+  await load(page, path.join(FIXTURES, 'long.pdf'));
+  const first = page.locator('.thumb[data-p="1"] canvas');
+  await expect.poll(() => first.evaluate((c) => c.width)).toBeGreaterThan(0);
+  await page.locator('#thumbs').evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await expect.poll(() => first.evaluate((c) => c.width)).toBe(0);
+  await expect.poll(() => page.locator('.thumb[data-p="120"] canvas').evaluate((c) => c.width)).toBeGreaterThan(0);
+  await page.locator('#thumbs').evaluate((el) => { el.scrollTop = 0; });
+  await expect.poll(() => first.evaluate((c) => c.width)).toBeGreaterThan(0);
 });

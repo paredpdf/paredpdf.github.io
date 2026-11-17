@@ -55,6 +55,7 @@ el.reset.addEventListener('click', resetAll);
 function resetAll() {
   session++;
   thumbObserver?.disconnect();
+  evictObserver?.disconnect();
   thumbQueue.length = 0;
   state?.pdf?.destroy();
   state = null;
@@ -403,12 +404,25 @@ el.crop.addEventListener('pointercancel', endDrag);
 
 /* ---------- thumbnails ---------- */
 
-let thumbObserver = null;
+let thumbObserver = null, evictObserver = null;
 const thumbQueue = [];
 let thumbBusy = false;
 
 function buildThumbs() {
   thumbObserver?.disconnect();
+  evictObserver?.disconnect();
+  // Free thumbnails scrolled far out of view (long documents would
+  // otherwise keep a bitmap per page) and redraw them when they return.
+  evictObserver = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting) continue;
+      const t = state.thumbs[Number(e.target.closest('.thumb').dataset.p)];
+      if (!t.rendered) continue;
+      t.canvas.width = t.canvas.height = 0;
+      t.rendered = false;
+      thumbObserver.observe(t.clip);
+    }
+  }, { root: el.thumbs, rootMargin: '1500px' });
   thumbObserver = new IntersectionObserver((entries) => {
     for (const e of entries) {
       if (!e.isIntersecting) continue;
@@ -433,11 +447,14 @@ function buildThumbs() {
     const num = Object.assign(document.createElement('span'), { className: 'tnum', textContent: p });
     t.append(cb, clip, num);
     frag.append(t);
-    state.thumbs[p] = { el: t, cb, clip, canvas };
+    state.thumbs[p] = { el: t, cb, clip, canvas, rendered: false };
   }
   el.thumbs.replaceChildren(frag);
   for (const g of state.groups) layoutThumbs(g);
-  for (let p = 1; p <= state.n; p++) thumbObserver.observe(state.thumbs[p].clip);
+  for (let p = 1; p <= state.n; p++) {
+    thumbObserver.observe(state.thumbs[p].clip);
+    evictObserver.observe(state.thumbs[p].clip);
+  }
 }
 
 // Size each tile to the crop box and slide the full-sheet render inside it.
@@ -463,6 +480,7 @@ async function pumpThumbs() {
     while (thumbQueue.length && my === session) {
       const p = thumbQueue.shift();
       const g = state.groupOf[p], t = state.thumbs[p];
+      if (t.rendered) continue;
       const page = await state.pdf.getPage(p);
       if (my !== session) return;
       // Enough pixels for the tile even if the crop box later narrows a bit.
@@ -474,6 +492,7 @@ async function pumpThumbs() {
       ctx.fillStyle = '#fff';
       ctx.fillRect(0, 0, t.canvas.width, t.canvas.height);
       await page.render({ canvasContext: ctx, viewport: vp }).promise.catch(() => {});
+      t.rendered = true;
     }
   } finally {
     thumbBusy = false;

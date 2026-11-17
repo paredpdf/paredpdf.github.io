@@ -34,4 +34,5 @@ export default function globalSetup() {
   fs.mkdirSync(FIXTURES, { recursive: true });
   fs.writeFileSync(path.join(FIXTURES, 'letterboxed.pdf'), letterboxed(6));
   fs.writeFileSync(path.join(FIXTURES, 'letterboxed-noclip.pdf'), letterboxed(6, { clip: false }));
+  fs.writeFileSync(path.join(FIXTURES, 'long.pdf'), letterboxed(120));
 }
