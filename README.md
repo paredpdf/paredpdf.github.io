@@ -34,9 +34,9 @@ It has to be served over HTTP, because ES modules and workers don't load from `f
 
 Dependencies load from jsDelivr with pinned versions: pdfjs-dist 4.10.38 and mupdf 1.28.1. The mupdf engine is about 3.6 MB compressed. It starts loading in the background once analysis finishes.
 
-## Licence note
+## Licence
 
-mupdf.js is AGPL-3.0. A public site that uses it must publish its own source code under the AGPL too. That's fine for an open-source project.
+AGPL-3.0 (see `LICENSE`), matching mupdf.js, which Pared uses for export.
 
 ## Results on the Tzafit guide (152 MB, 50 pages)
 
