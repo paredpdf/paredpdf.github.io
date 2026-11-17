@@ -659,6 +659,30 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+/* ---------- opening PDFs from outside the page ---------- */
+
+// "Open with" on an installed app (File Handling API).
+if ('launchQueue' in window) {
+  window.launchQueue.setConsumer(async ({ files }) => {
+    if (files?.length) open(await files[0].getFile());
+  });
+}
+
+// Shared from another app (Web Share Target): the service worker parks the
+// file in a cache and redirects here with ?shared=1.
+async function openShared() {
+  if (!new URLSearchParams(location.search).has('shared') || !('caches' in window)) return;
+  history.replaceState(null, '', location.pathname);
+  const cache = await caches.open('pared-share');
+  const res = await cache.match('shared.pdf');
+  if (!res) return;
+  const name = decodeURIComponent(res.headers.get('x-filename') || 'shared.pdf');
+  const blob = await res.blob();
+  await cache.delete('shared.pdf');
+  open(new File([blob], name, { type: 'application/pdf' }));
+}
+openShared();
+
 /* ---------- helpers ---------- */
 
 function showError(msg) { el.error.textContent = msg; el.error.hidden = false; el.progress.hidden = true; }

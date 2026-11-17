@@ -160,3 +160,25 @@ test('works offline after the first visit', async ({ page, context }) => {
   expect(pages).toHaveLength(6);
   expect(filters).toEqual(['DCTDecode']);
 });
+
+test('opens a PDF shared from another app', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+  // What Android does for a share target: POST the file as multipart form data.
+  const status = await page.evaluate(async () => {
+    const pdf = await (await fetch('test/e2e/.fixtures/letterboxed.pdf')).blob();
+    const form = new FormData();
+    form.append('pdf', new File([pdf], 'from share.pdf', { type: 'application/pdf' }));
+    const res = await fetch('share', { method: 'POST', body: form, redirect: 'manual' });
+    return res.type === 'opaqueredirect' ? 'redirect' : res.status;
+  });
+  expect(status).toBe('redirect');
+  await page.goto('/?shared=1');
+  await expect(page.locator('#fname')).toHaveText('from share.pdf');
+  await expect(page.locator('#detectText')).toContainText('9:16 portrait');
+  expect(new URL(page.url()).search).toBe('');
+  // The parked file is removed once opened.
+  expect(await page.evaluate(async () => !!(await (await caches.open('pared-share')).match('shared.pdf')))).toBe(false);
+});

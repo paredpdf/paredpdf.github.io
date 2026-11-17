@@ -8,6 +8,7 @@
 
 const APP_CACHE = 'pared-app-v1';
 const VENDOR_CACHE = 'pared-vendor-pdfjs-4.10.38-mupdf-1.28.1';
+const SHARE_CACHE = 'pared-share';
 const NETWORK_TIMEOUT_MS = 4000;
 
 const APP_FILES = [
@@ -32,7 +33,7 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
-    const keep = new Set([APP_CACHE, VENDOR_CACHE]);
+    const keep = new Set([APP_CACHE, VENDOR_CACHE, SHARE_CACHE]);
     for (const key of await caches.keys()) if (key.startsWith('pared-') && !keep.has(key)) await caches.delete(key);
     await self.clients.claim();
   })());
@@ -41,10 +42,26 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
-  if (req.method !== 'GET' || url.origin !== self.location.origin) return;
+  if (url.origin !== self.location.origin) return;
+  if (req.method === 'POST' && url.pathname.endsWith('/share')) { event.respondWith(receiveShare(req)); return; }
+  if (req.method !== 'GET') return;
   const path = url.pathname.slice(new URL(self.registration.scope).pathname.length);
   event.respondWith(path.startsWith('vendor/') ? cacheFirst(req) : networkFirst(req));
 });
+
+// A PDF shared to the installed app (Web Share Target). Park it in a cache
+// and redirect to the app, which picks it up and removes it.
+async function receiveShare(req) {
+  const form = await req.formData();
+  const file = form.getAll('pdf').find((f) => f instanceof File);
+  if (file) {
+    const cache = await caches.open(SHARE_CACHE);
+    await cache.put('shared.pdf', new Response(file, {
+      headers: { 'content-type': 'application/pdf', 'x-filename': encodeURIComponent(file.name || 'shared.pdf') },
+    }));
+  }
+  return Response.redirect(new URL('./?shared=1', self.registration.scope).href, 303);
+}
 
 async function cacheFirst(req) {
   const cache = await caches.open(VENDOR_CACHE);
