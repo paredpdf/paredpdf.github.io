@@ -1,6 +1,6 @@
-# TruePage
+# Pared
 
-Fixes PDFs exported at the wrong page size, such as a 9:16 portrait slide placed in the middle of an A4 landscape page. TruePage:
+Fixes PDFs exported at the wrong page size, such as a 9:16 portrait slide placed in the middle of an A4 landscape page. Pared:
 - detects the real page,
 - crops every page to it,
 - lets you choose which pages to keep,

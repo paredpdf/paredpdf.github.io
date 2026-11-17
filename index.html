@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>TruePage</title>
-  <meta name="description" content="Fix PDFs exported at the wrong page size. Detects the real page, crops to it, picks pages and compresses images, entirely in your browser.">
+  <title>Pared</title>
+  <meta name="description" content="Pared fixes the page size, crops the margins and shrinks the file of a PDF, entirely in your browser. Nothing is uploaded.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='7' width='28' height='18' rx='2' fill='none' stroke='%23888' stroke-width='2' stroke-dasharray='3 2.5'/%3E%3Crect x='11' y='3' width='10' height='26' rx='1.5' fill='%23d2551f'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="style.css">
   <script type="module" src="app.js"></script>
@@ -16,9 +16,9 @@
         <rect x="2" y="7" width="28" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 2.5"/>
         <rect x="11" y="3" width="10" height="26" rx="1.5" fill="var(--accent)"/>
       </svg>
-      <span>TruePage</span>
+      <span>Pared</span>
     </div>
-    <p class="tag">Fix PDFs exported at the wrong page size. <strong>Your file never leaves this device.</strong></p>
+    <p class="tag">Fix the page size, crop the margins, shrink the file. <strong>100% in your browser, nothing uploaded.</strong></p>
   </header>
 
   <main>
@@ -32,7 +32,7 @@
           <path d="M36 36l4 4-4 4M84 36l-4 4 4 4" class="arrow"/>
         </svg>
         <h1>Drop a PDF here</h1>
-        <p>TruePage finds the real page inside a sheet that was exported at the wrong size (a portrait slide on a landscape page, for example), crops to it, and can shrink the file.</p>
+        <p>Pared finds the real page inside a sheet that was exported at the wrong size (a portrait slide on a landscape page, for example), crops to it, and can shrink the file.</p>
         <button class="btn primary" id="pick" type="button">Choose a PDF</button>
       </div>
     </section>
