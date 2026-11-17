@@ -127,3 +127,14 @@ test('loads without console errors', async ({ page }) => {
   await load(page);
   expect(errors).toEqual([]);
 });
+
+test('makes no requests outside the site, even while exporting', async ({ page, baseURL }) => {
+  const external = [];
+  page.on('request', (r) => {
+    const u = new URL(r.url());
+    if (!['blob:', 'data:'].includes(u.protocol) && u.origin !== new URL(baseURL).origin) external.push(r.url());
+  });
+  await load(page);
+  await download(page);
+  expect(external).toEqual([]);
+});

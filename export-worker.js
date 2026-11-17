@@ -1,5 +1,5 @@
 // Runs the export off the main thread so the page stays responsive.
-import * as mupdf from 'https://cdn.jsdelivr.net/npm/mupdf@1.28.1/dist/mupdf.js';
+import * as mupdf from './vendor/mupdf/mupdf.js';
 import { processPdf } from './pdf-core.js';
 
 // Browser JPEG encoder: 4:2:0 chroma subsampling, much smaller than mupdf's.

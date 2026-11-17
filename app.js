@@ -1,10 +1,15 @@
-import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs';
+import * as pdfjsLib from './vendor/pdfjs/pdf.min.mjs';
 import {
   FULL, RATIOS, findContentBox, unionBoxes, detectPageBox, boxForRatio, padBox, ratiosFor, flipRatioId, nameRatio,
 } from './detect.js';
 import { parseRange, formatRange } from './pages.js';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdfjs/pdf.worker.min.mjs', import.meta.url).href;
+const PDFJS_ASSETS = {
+  cMapUrl: new URL('./vendor/pdfjs/cmaps/', import.meta.url).href,
+  cMapPacked: true,
+  standardFontDataUrl: new URL('./vendor/pdfjs/standard_fonts/', import.meta.url).href,
+};
 
 const MAX_SAMPLES_PER_GROUP = 40;   // pages rendered for detection, per sheet size
 const DETECT_PX = 1000;             // longest side of the detection render
@@ -72,7 +77,7 @@ async function open(file) {
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
     // pdf.js may take ownership of the buffer it is given, so hand it a copy.
-    const pdf = await pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false }).promise;
+    const pdf = await pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false, ...PDFJS_ASSETS }).promise;
     if (my !== session) return;
     state = { file, bytes, pdf, n: pdf.numPages, page: 1, groups: [], groupOf: [], selected: null, lastToggled: null, thumbs: [] };
     state.selected = new Uint8Array(state.n + 1).fill(1);

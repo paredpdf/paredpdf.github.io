@@ -42,7 +42,7 @@ The tests use Node's built-in test runner and cover page detection (`detect.js`)
   - Saves with garbage collection, so skipped pages' images are actually removed.
 - `export-worker.js` runs the engine off the main thread and uses the browser's JPEG encoder (4:2:0 chroma, much smaller than mupdf's 4:4:4).
 
-Dependencies load from jsDelivr with pinned versions: pdfjs-dist 4.10.38 and mupdf 1.28.1. The mupdf engine is about 3.6 MB compressed. It starts loading in the background once analysis finishes.
+pdf.js 4.10.38 and mupdf 1.28.1 are served from `vendor/`, so the site makes no third-party requests. `npm run vendor` copies them from `node_modules` after a version change, and a test fails if `vendor/` drifts from `package.json`. The mupdf engine (10 MB) starts loading in the background once analysis finishes.
 
 ## Licence
 
@@ -59,6 +59,5 @@ AGPL-3.0 (see `LICENSE`), matching mupdf.js, which Pared uses for export.
 
 ## Next
 
-- Bundle pdf.js and mupdf locally, so the site works offline and makes no third-party requests.
 - Read the exporter's own clipping rectangle when one exists, for an exact box with no guessing.
 - Drag-to-reorder pages (mupdf's `rearrangePages` already supports any order).
