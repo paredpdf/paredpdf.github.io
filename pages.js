@@ -11,7 +11,8 @@ export function parseRange(str, n) {
     const m = part.match(/^(\d+)?-(\d+)?$/) || part.match(/^(\d+)$/);
     if (!m) throw new Error(`"${part}" isn't a page or range. Use something like 1-5, 8.`);
     const a = Number(m[1] ?? 1), b = part.includes('-') ? Number(m[2] ?? n) : a;
-    if (a < 1 || b > n || a > b) throw new Error(`"${part}" is outside 1-${n}.`);
+    if (a > b) throw new Error(`"${part}" is backwards. Did you mean ${b}-${a}?`);
+    if (a < 1 || b > n) throw new Error(`"${part}" is outside 1-${n}.`);
     for (let i = a; i <= b; i++) out.add(i);
   }
   return [...out].sort((x, y) => x - y);

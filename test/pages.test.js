@@ -37,6 +37,10 @@ test('rejects pages outside the document', () => {
   assert.throws(() => parseRange('9-11', 10), /"9-11" is outside 1-10/);
 });
 
+test('explains a backwards range instead of calling it out of bounds', () => {
+  assert.throws(() => parseRange('7-3', 10), /"7-3" is backwards. Did you mean 3-7\?/);
+});
+
 test('formatRange collapses runs of consecutive pages', () => {
   assert.equal(formatRange([1, 2, 3, 5, 7, 8]), '1-3, 5, 7-8');
   assert.equal(formatRange([4]), '4');
