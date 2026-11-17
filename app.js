@@ -7,12 +7,14 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dis
 
 const MAX_SAMPLES_PER_GROUP = 40;   // pages rendered for detection, per sheet size
 const DETECT_PX = 1000;             // longest side of the detection render
+const THUMB_W = 84, THUMB_MAX_H = 150;
 const QUALITY = { 150: 72, 200: 78, 300: 85 }; // JPEG quality per resolution preset
 
 const $ = (id) => document.getElementById(id);
 const el = Object.fromEntries([
-  'drop', 'file', 'pick', 'work', 'stageWrap', 'stage', 'canvas', 'crop', 'shade', 'contentOutline',
-  'prev', 'next', 'pageLabel', 'showContent',
+  'drop', 'file', 'pick', 'work', 'stageWrap', 'stage', 'canvas', 'crop', 'shade', 'contentOutline', 'excludedBadge',
+  'prev', 'next', 'pageLabel', 'includePage', 'showContent',
+  'selCount', 'range', 'rangeErr', 'selAll', 'selNone', 'thumbs',
   'fname', 'fmeta', 'progress', 'progressBar', 'progressText',
   'detectCard', 'confidence', 'detectText', 'groupSel',
   'boxCard', 'orientP', 'orientL', 'chips', 'rSize', 'rMm', 'rRatio',
@@ -44,9 +46,12 @@ el.reset.addEventListener('click', resetAll);
 
 function resetAll() {
   session++;
+  thumbObserver?.disconnect();
+  thumbQueue.length = 0;
   state?.pdf?.destroy();
   state = null;
   el.file.value = '';
+  el.thumbs.replaceChildren();
   el.work.hidden = true;
   el.reset.hidden = true;
   el.drop.hidden = false;
@@ -68,11 +73,14 @@ async function open(file) {
     // pdf.js may take ownership of the buffer it is given, so hand it a copy.
     const pdf = await pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false }).promise;
     if (my !== session) return;
-    state = { file, bytes, pdf, n: pdf.numPages, page: 1, groups: [], groupOf: [] };
+    state = { file, bytes, pdf, n: pdf.numPages, page: 1, groups: [], groupOf: [], selected: null, lastToggled: null, thumbs: [] };
+    state.selected = new Uint8Array(state.n + 1).fill(1);
     await collectGroups(my);
     if (my !== session) return;
     const g0 = state.groups[0];
     el.fmeta.textContent = `${fmtBytes(file.size)} · ${state.n} page${state.n > 1 ? 's' : ''} · ${fmtSheet(g0.W, g0.H)}`;
+    buildThumbs();
+    updateSelectionUI();
     showPage(1);
     await analyse(my);
   } catch (err) {
@@ -183,6 +191,7 @@ el.orientL.addEventListener('click', () => curGroup()?.done && setOrientation(cu
 
 function boxChanged(g) {
   if (g === curGroup()) { placeOverlay(); refreshPanel(); }
+  layoutThumbs(g);
 }
 
 function curGroup() { return state?.groupOf[state.page]; }
@@ -246,6 +255,7 @@ function chip(label, pressed, onClick) {
 el.prev.addEventListener('click', () => showPage(state.page - 1));
 el.next.addEventListener('click', () => showPage(state.page + 1));
 el.showContent.addEventListener('change', placeOverlay);
+el.includePage.addEventListener('change', () => { setSelected(state.page, el.includePage.checked); });
 document.addEventListener('keydown', (e) => {
   if (!state || el.work.hidden || e.target.closest('input, button, select')) return;
   if (e.key === 'ArrowLeft') showPage(state.page - 1);
@@ -257,10 +267,14 @@ window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer
 async function showPage(n) {
   if (!state || n < 1 || n > state.n) return;
   const prevGroup = curGroup();
+  const prevPage = state.page;
   state.page = n;
   el.pageLabel.textContent = `Page ${n} of ${state.n}`;
   el.prev.disabled = n === 1;
   el.next.disabled = n === state.n;
+  state.thumbs[prevPage]?.el.classList.remove('cur');
+  state.thumbs[n]?.el.classList.add('cur');
+  updateCurrentInclusion();
 
   const g = curGroup();
   const wrap = el.stageWrap;
@@ -316,7 +330,7 @@ function setRect(node, b) {
 
 /* ---------- dragging the crop box ---------- */
 
-let drag = null;
+let drag = null, dragFrame = 0;
 el.crop.addEventListener('pointerdown', (e) => {
   const g = curGroup();
   if (!g) return;
@@ -346,10 +360,190 @@ el.crop.addEventListener('pointermove', (e) => {
   g.orient = boxOrient(g, b);
   placeOverlay();
   refreshPanel();
+  cancelAnimationFrame(dragFrame);
+  dragFrame = requestAnimationFrame(() => layoutThumbs(g));
 });
 const endDrag = () => { drag = null; };
 el.crop.addEventListener('pointerup', endDrag);
 el.crop.addEventListener('pointercancel', endDrag);
+
+/* ---------- thumbnails ---------- */
+
+let thumbObserver = null;
+const thumbQueue = [];
+let thumbBusy = false;
+
+function buildThumbs() {
+  thumbObserver?.disconnect();
+  thumbObserver = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      thumbObserver.unobserve(e.target);
+      thumbQueue.push(Number(e.target.closest('.thumb').dataset.p));
+    }
+    pumpThumbs();
+  }, { root: el.thumbs, rootMargin: '200px' });
+
+  const frag = document.createDocumentFragment();
+  for (let p = 1; p <= state.n; p++) {
+    const t = document.createElement('div');
+    t.className = 'thumb';
+    t.dataset.p = p;
+    const cb = Object.assign(document.createElement('input'), { type: 'checkbox', checked: true });
+    cb.setAttribute('aria-label', `Export page ${p}`);
+    const clip = document.createElement('div');
+    clip.className = 'tclip';
+    clip.title = `Preview page ${p}`;
+    const canvas = document.createElement('canvas');
+    clip.append(canvas);
+    const num = Object.assign(document.createElement('span'), { className: 'tnum', textContent: p });
+    t.append(cb, clip, num);
+    frag.append(t);
+    state.thumbs[p] = { el: t, cb, clip, canvas };
+  }
+  el.thumbs.replaceChildren(frag);
+  for (const g of state.groups) layoutThumbs(g);
+  for (let p = 1; p <= state.n; p++) thumbObserver.observe(state.thumbs[p].clip);
+}
+
+// Size each tile to the crop box and slide the full-sheet render inside it.
+function layoutThumbs(g) {
+  if (!state?.thumbs.length) return;
+  const b = g.box;
+  const bw = (b.x1 - b.x0) * g.W, bh = (b.y1 - b.y0) * g.H;
+  let w = THUMB_W, h = (THUMB_W * bh) / bw;
+  if (h > THUMB_MAX_H) { w = (w * THUMB_MAX_H) / h; h = THUMB_MAX_H; }
+  const cw = w / (b.x1 - b.x0), ch = (cw * g.H) / g.W;
+  for (const p of g.pages) {
+    const t = state.thumbs[p];
+    Object.assign(t.clip.style, { width: `${w}px`, height: `${h}px` });
+    Object.assign(t.canvas.style, { width: `${cw}px`, height: `${ch}px`, left: `${-b.x0 * cw}px`, top: `${-b.y0 * ch}px` });
+  }
+}
+
+async function pumpThumbs() {
+  if (thumbBusy) return;
+  thumbBusy = true;
+  const my = session;
+  try {
+    while (thumbQueue.length && my === session) {
+      const p = thumbQueue.shift();
+      const g = state.groupOf[p], t = state.thumbs[p];
+      const page = await state.pdf.getPage(p);
+      if (my !== session) return;
+      // Enough pixels for the tile even if the crop box later narrows a bit.
+      const scale = ((THUMB_W * 2.5) / g.W) * Math.min(2, window.devicePixelRatio || 1);
+      const vp = page.getViewport({ scale });
+      t.canvas.width = Math.round(vp.width);
+      t.canvas.height = Math.round(vp.height);
+      const ctx = t.canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, t.canvas.width, t.canvas.height);
+      await page.render({ canvasContext: ctx, viewport: vp }).promise.catch(() => {});
+    }
+  } finally {
+    thumbBusy = false;
+  }
+}
+
+/* ---------- page selection ---------- */
+
+el.thumbs.addEventListener('click', (e) => {
+  const t = e.target.closest('.thumb');
+  if (!t) return;
+  const p = Number(t.dataset.p);
+  if (e.target.matches('input[type=checkbox]')) {
+    const v = e.target.checked;
+    if (e.shiftKey && state.lastToggled) {
+      const [a, b] = [Math.min(p, state.lastToggled), Math.max(p, state.lastToggled)];
+      for (let i = a; i <= b; i++) state.selected[i] = v ? 1 : 0;
+    } else {
+      state.selected[p] = v ? 1 : 0;
+    }
+    state.lastToggled = p;
+    updateSelectionUI();
+  } else if (e.target.closest('.tclip')) {
+    showPage(p);
+  }
+});
+el.selAll.addEventListener('click', () => { state.selected.fill(1); updateSelectionUI(); });
+el.selNone.addEventListener('click', () => { state.selected.fill(0); updateSelectionUI(); });
+el.range.addEventListener('input', () => { el.range.classList.remove('bad'); el.rangeErr.hidden = true; });
+el.range.addEventListener('keydown', (e) => { if (e.key === 'Enter') el.range.blur(); });
+el.range.addEventListener('change', () => {
+  try {
+    const pages = parseRange(el.range.value, state.n);
+    state.selected.fill(0);
+    for (const p of pages) state.selected[p] = 1;
+    updateSelectionUI();
+  } catch (err) {
+    el.range.classList.add('bad');
+    el.rangeErr.textContent = err.message;
+    el.rangeErr.hidden = false;
+  }
+});
+
+function setSelected(p, v) {
+  state.selected[p] = v ? 1 : 0;
+  state.lastToggled = p;
+  updateSelectionUI();
+}
+
+function selectedPages() {
+  const out = [];
+  for (let p = 1; p <= state.n; p++) if (state.selected[p]) out.push(p);
+  return out;
+}
+
+function updateSelectionUI() {
+  const pages = selectedPages();
+  el.selCount.textContent = `${pages.length} of ${state.n} selected`;
+  if (document.activeElement !== el.range) el.range.value = pages.length === state.n ? '' : formatRange(pages);
+  el.range.placeholder = pages.length === state.n ? `All (1-${state.n})` : 'e.g. 1-5, 8, 10-12';
+  for (let p = 1; p <= state.n; p++) {
+    const t = state.thumbs[p];
+    if (!t) continue;
+    const on = !!state.selected[p];
+    t.cb.checked = on;
+    t.el.classList.toggle('off', !on);
+  }
+  updateCurrentInclusion();
+  el.download.disabled = pages.length === 0;
+  el.download.textContent = pages.length === 0 ? 'Select at least one page'
+    : `Download PDF · ${pages.length} page${pages.length > 1 ? 's' : ''}`;
+}
+
+function updateCurrentInclusion() {
+  const on = !!state.selected[state.page];
+  el.includePage.checked = on;
+  el.excludedBadge.hidden = on;
+  el.stage.classList.toggle('excluded', !on);
+}
+
+function parseRange(str, n) {
+  const s = str.trim().replace(/\s*[-–]\s*/g, '-');
+  if (!s || /^all$/i.test(s)) return Array.from({ length: n }, (_, i) => i + 1);
+  const out = new Set();
+  for (const part of s.split(/[,;\s]+/).filter(Boolean)) {
+    const m = part.match(/^(\d+)?-(\d+)?$/) || part.match(/^(\d+)$/);
+    if (!m) throw new Error(`"${part}" isn't a page or range. Use something like 1-5, 8.`);
+    const a = Number(m[1] ?? 1), b = part.includes('-') ? Number(m[2] ?? n) : a;
+    if (a < 1 || b > n || a > b) throw new Error(`"${part}" is outside 1-${n}.`);
+    for (let i = a; i <= b; i++) out.add(i);
+  }
+  return [...out].sort((x, y) => x - y);
+}
+
+function formatRange(pages) {
+  const parts = [];
+  for (let i = 0; i < pages.length; i++) {
+    let j = i;
+    while (j + 1 < pages.length && pages[j + 1] === pages[j] + 1) j++;
+    parts.push(j > i ? `${pages[i]}-${pages[j]}` : `${pages[i]}`);
+    i = j;
+  }
+  return parts.join(', ');
+}
 
 /* ---------- export (in a worker, via mupdf) ---------- */
 
@@ -358,7 +552,7 @@ el.compress.addEventListener('change', () => {
   el.ppiField.hidden = !el.compress.checked;
   el.compressHint.textContent = el.compress.checked
     ? 'Shrinks photos to the chosen resolution and saves them as JPEG. Text and vector graphics aren\'t touched.'
-    : 'Images are kept as they are.';
+    : 'Images are kept as they are. Skipped pages and their images are still removed.';
 });
 
 let worker = null, workerReady = null;
@@ -400,6 +594,8 @@ function retireWorker() {
 async function exportPdf() {
   if (!state) return;
   const my = session;
+  const pages = selectedPages();
+  if (!pages.length) return;
   el.download.disabled = true;
   el.error.hidden = true;
   el.saveProgress.hidden = true;
@@ -411,7 +607,7 @@ async function exportPdf() {
     const boxes = [];
     for (let i = 1; i <= state.n; i++) {
       const b = state.groupOf[i].box;
-      if (b.x0 === 0 && b.y0 === 0 && b.x1 === 1 && b.y1 === 1) { boxes.push(null); continue; }
+      if (!state.selected[i] || (b.x0 === 0 && b.y0 === 0 && b.x1 === 1 && b.y1 === 1)) { boxes.push(null); continue; }
       const vp = (await state.pdf.getPage(i)).getViewport({ scale: 1 });
       const [ax, ay] = vp.convertToPdfPoint(b.x0 * vp.width, b.y0 * vp.height);
       const [bx, by] = vp.convertToPdfPoint(b.x1 * vp.width, b.y1 * vp.height);
@@ -439,7 +635,7 @@ async function exportPdf() {
           }
         },
       });
-      worker.postMessage({ id, bytes: copy, opts: { boxes, compress } }, [copy.buffer]);
+      worker.postMessage({ id, bytes: copy, opts: { boxes, keep: pages.map((p) => p - 1), compress } }, [copy.buffer]);
     });
     retireWorker();
     if (my !== session) return;
@@ -470,7 +666,7 @@ async function exportPdf() {
       ? 'This PDF is encrypted, so it can’t be rewritten here.'
       : `Couldn't write the PDF: ${err?.message || err}`);
   } finally {
-    el.download.disabled = false;
+    if (state) el.download.disabled = selectedPages().length === 0;
   }
 }
 

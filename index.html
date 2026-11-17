@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>TruePage</title>
-  <meta name="description" content="Fix PDFs exported at the wrong page size. Detects the real page, crops to it and compresses images, entirely in your browser.">
+  <meta name="description" content="Fix PDFs exported at the wrong page size. Detects the real page, crops to it, picks pages and compresses images, entirely in your browser.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='7' width='28' height='18' rx='2' fill='none' stroke='%23888' stroke-width='2' stroke-dasharray='3 2.5'/%3E%3Crect x='11' y='3' width='10' height='26' rx='1.5' fill='%23d2551f'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="style.css">
   <script type="module" src="app.js"></script>
@@ -50,15 +50,31 @@
               <div class="h c" data-h="nw"></div><div class="h c" data-h="ne"></div>
               <div class="h c" data-h="sw"></div><div class="h c" data-h="se"></div>
             </div>
+            <div class="excluded-badge" id="excludedBadge" hidden>Not exported</div>
           </div>
         </div>
         <nav class="pager">
           <button class="btn icon" id="prev" type="button" aria-label="Previous page">‹</button>
           <span id="pageLabel">Page 1 of 1</span>
           <button class="btn icon" id="next" type="button" aria-label="Next page">›</button>
+          <label class="toggle"><input type="checkbox" id="includePage" checked> Export this page</label>
           <label class="toggle"><input type="checkbox" id="showContent" checked> Show detected content</label>
         </nav>
 
+        <section class="pages" aria-labelledby="pagesTitle">
+          <div class="pages-h">
+            <h2 id="pagesTitle">Pages</h2>
+            <span class="selcount" id="selCount"></span>
+            <div class="pages-tools">
+              <input id="range" class="range" type="text" inputmode="numeric" placeholder="e.g. 1-5, 8, 10-12" aria-label="Pages to export" spellcheck="false">
+              <button class="chip" id="selAll" type="button">All</button>
+              <button class="chip" id="selNone" type="button">None</button>
+            </div>
+          </div>
+          <div class="range-err" id="rangeErr" hidden></div>
+          <div class="thumbs" id="thumbs"></div>
+          <p class="hint">Click a thumbnail to preview it; use the checkbox to include or skip it. Shift-click a checkbox to change a whole range.</p>
+        </section>
       </div>
 
       <aside class="panel">

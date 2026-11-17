@@ -143,6 +143,30 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 .seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
 .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+/* Excluded page badge on the preview */
+.excluded-badge { position: absolute; z-index: 5; top: 12px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); font: 600 13px/1 var(--font); padding: 7px 12px; border-radius: 99px; pointer-events: none; }
+.stage.excluded canvas { opacity: .45; }
+
+/* Pages */
+.pages { margin-top: 22px; }
+.pages-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.pages-h h2 { font-size: 16px; margin: 0; }
+.selcount { color: var(--ink-2); font-size: 14px; font-variant-numeric: tabular-nums; }
+.pages-tools { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.range { font: inherit; font-size: 14px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); width: 190px; }
+.range:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
+.range.bad { border-color: var(--warn); }
+.range-err { color: var(--warn); font-size: 13px; margin: -4px 0 8px; }
+.thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 12px; max-height: 420px; overflow: auto; padding: 4px; }
+.thumb { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.tclip { position: relative; overflow: hidden; background: #fff; border-radius: 3px; box-shadow: 0 0 0 1px var(--line); cursor: pointer; width: 84px; transition: opacity .15s; }
+.tclip canvas { position: absolute; display: block; }
+.thumb.cur .tclip { box-shadow: 0 0 0 2px var(--accent); }
+.thumb.off .tclip { opacity: .35; }
+.thumb input { position: absolute; top: 4px; left: 8px; width: 18px; height: 18px; margin: 0; accent-color: var(--accent); cursor: pointer; z-index: 1; }
+.tnum { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.thumb.off .tnum { text-decoration: line-through; }
+
 /* Export */
 .check { display: flex; gap: 8px; align-items: center; font-weight: 600; cursor: pointer; margin-bottom: 10px; }
 .check input { width: 17px; height: 17px; margin: 0; accent-color: var(--accent); }
