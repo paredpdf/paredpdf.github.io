@@ -12,17 +12,21 @@ const PORTRAIT = [
 const SQUARE = { id: '1:1', label: '1:1', r: 1 };
 const LANDSCAPE = PORTRAIT.map((p) => ({
   id: p.id + '-l',
-  label: p.label === 'A4' || p.label === 'Letter' ? p.label + ' landscape' : p.label.split(':').reverse().join(':'),
+  label: p.label.includes(':') ? p.label.split(':').reverse().join(':') : p.label,
   r: 1 / p.r,
 }));
 
 export const RATIOS = [...PORTRAIT, SQUARE, ...LANDSCAPE];
 export const FULL = { x0: 0, y0: 0, x1: 1, y1: 1 };
 
-// Ratios worth offering as presets for a sheet of this shape: on a landscape
-// sheet the hidden page is usually portrait, and vice versa.
-export function ratiosForSheet(W, H) {
-  return W >= H ? [...PORTRAIT, SQUARE] : [...LANDSCAPE, SQUARE];
+export function ratiosFor(orientation) {
+  return orientation === 'landscape' ? [...LANDSCAPE, SQUARE] : [...PORTRAIT, SQUARE];
+}
+
+// The same shape in the other orientation ('3:4' <-> '3:4-l'); 1:1 maps to itself.
+export function flipRatioId(id) {
+  if (id === SQUARE.id) return id;
+  return id.endsWith('-l') ? id.slice(0, -2) : id + '-l';
 }
 
 // Bounding box of everything that differs from the background colour.

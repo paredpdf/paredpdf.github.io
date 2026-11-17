@@ -1,6 +1,6 @@
 import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs';
 import {
-  FULL, RATIOS, findContentBox, unionBoxes, detectPageBox, boxForRatio, padBox, ratiosForSheet, nameRatio,
+  FULL, RATIOS, findContentBox, unionBoxes, detectPageBox, boxForRatio, padBox, ratiosFor, flipRatioId, nameRatio,
 } from './detect.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
@@ -15,7 +15,7 @@ const el = Object.fromEntries([
   'prev', 'next', 'pageLabel', 'showContent',
   'fname', 'fmeta', 'progress', 'progressBar', 'progressText',
   'detectCard', 'confidence', 'detectText', 'groupSel',
-  'boxCard', 'chips', 'rSize', 'rMm', 'rRatio',
+  'boxCard', 'orientP', 'orientL', 'chips', 'rSize', 'rMm', 'rRatio',
   'exportCard', 'compress', 'ppiField', 'ppi', 'compressHint', 'download', 'saveProgress', 'saveBar', 'saveText',
   'reset', 'error',
 ].map((id) => [id, $(id)]));
@@ -97,7 +97,10 @@ async function collectGroups(my) {
     const key = `${Math.round(vp.width)}x${Math.round(vp.height)}`;
     let g = byKey.get(key);
     if (!g) {
-      g = { key, W: vp.width, H: vp.height, pages: [], content: null, detected: null, box: { ...FULL }, mode: 'full', done: false };
+      g = {
+        key, W: vp.width, H: vp.height, pages: [], content: null, detected: null, box: { ...FULL }, mode: 'full',
+        orient: vp.width > vp.height ? 'portrait' : 'landscape', done: false,
+      };
       byKey.set(key, g);
       state.groups.push(g);
     }
@@ -151,11 +154,14 @@ function samplePages(pages) {
   return [...out];
 }
 
-/* ---------- crop modes ---------- */
+/* ---------- crop modes & orientation ---------- */
+
+const ratioOrient = (id) => (!RATIOS.some((r) => r.id === id) || id === '1:1' ? null : id.endsWith('-l') ? 'landscape' : 'portrait');
+const boxOrient = (g, b) => ((b.x1 - b.x0) * g.W > (b.y1 - b.y0) * g.H ? 'landscape' : 'portrait');
 
 function setMode(g, mode) {
   g.mode = mode;
-  if (mode === 'auto') g.box = { ...g.detected.box };
+  if (mode === 'auto') { g.box = { ...g.detected.box }; g.orient = boxOrient(g, g.box); }
   else if (mode === 'full') g.box = { ...FULL };
   else if (mode === 'content') g.box = g.content ? padBox(g.content, 0.01) : { ...FULL };
   else if (mode !== 'custom') {
@@ -164,6 +170,16 @@ function setMode(g, mode) {
   }
   boxChanged(g);
 }
+
+function setOrientation(g, o) {
+  if (g.orient === o) return;
+  g.orient = o;
+  const ro = ratioOrient(g.mode);
+  if (ro && ro !== o) setMode(g, flipRatioId(g.mode));
+  else refreshPanel();
+}
+el.orientP.addEventListener('click', () => curGroup()?.done && setOrientation(curGroup(), 'portrait'));
+el.orientL.addEventListener('click', () => curGroup()?.done && setOrientation(curGroup(), 'landscape'));
 
 function boxChanged(g) {
   if (g === curGroup()) { placeOverlay(); refreshPanel(); }
@@ -199,8 +215,11 @@ function refreshPanel() {
     }));
   }
 
+  el.orientP.setAttribute('aria-pressed', String(g.orient === 'portrait'));
+  el.orientL.setAttribute('aria-pressed', String(g.orient === 'landscape'));
+
   const opts = [['auto', d.ratio ? `Auto (${d.ratio.label})` : 'Auto']];
-  for (const rt of ratiosForSheet(g.W, g.H)) opts.push([rt.id, rt.label]);
+  for (const rt of ratiosFor(g.orient)) opts.push([rt.id, rt.label]);
   opts.push(['content', 'Fit content'], ['full', 'Whole sheet']);
   if (g.mode === 'custom') opts.push(['custom', 'Custom']);
   el.chips.replaceChildren(...opts.map(([id, label]) => chip(label, g.mode === id, () => setMode(g, id))));
@@ -324,6 +343,7 @@ el.crop.addEventListener('pointermove', (e) => {
   const g = drag.g;
   g.box = b;
   g.mode = 'custom';
+  g.orient = boxOrient(g, b);
   placeOverlay();
   refreshPanel();
 });
