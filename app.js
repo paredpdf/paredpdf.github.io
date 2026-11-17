@@ -7,17 +7,18 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dis
 
 const MAX_SAMPLES_PER_GROUP = 40;   // pages rendered for detection, per sheet size
 const DETECT_PX = 1000;             // longest side of the detection render
+const QUALITY = { 150: 72, 200: 78, 300: 85 }; // JPEG quality per resolution preset
 
 const $ = (id) => document.getElementById(id);
-const el = {
-  drop: $('drop'), file: $('file'), pick: $('pick'), work: $('work'),
-  stageWrap: $('stageWrap'), stage: $('stage'), canvas: $('canvas'), crop: $('crop'), shade: $('shade'), contentOutline: $('contentOutline'),
-  prev: $('prev'), next: $('next'), pageLabel: $('pageLabel'), showContent: $('showContent'),
-  fname: $('fname'), fmeta: $('fmeta'), progress: $('progress'), progressBar: $('progressBar'), progressText: $('progressText'),
-  detectCard: $('detectCard'), confidence: $('confidence'), detectText: $('detectText'), groupSel: $('groupSel'),
-  boxCard: $('boxCard'), chips: $('chips'), rSize: $('rSize'), rMm: $('rMm'), rRatio: $('rRatio'),
-  actions: $('actions'), download: $('download'), saveText: $('saveText'), reset: $('reset'), error: $('error'),
-};
+const el = Object.fromEntries([
+  'drop', 'file', 'pick', 'work', 'stageWrap', 'stage', 'canvas', 'crop', 'shade', 'contentOutline',
+  'prev', 'next', 'pageLabel', 'showContent',
+  'fname', 'fmeta', 'progress', 'progressBar', 'progressText',
+  'detectCard', 'confidence', 'detectText', 'groupSel',
+  'boxCard', 'chips', 'rSize', 'rMm', 'rRatio',
+  'exportCard', 'compress', 'ppiField', 'ppi', 'compressHint', 'download', 'saveProgress', 'saveBar', 'saveText',
+  'reset', 'error',
+].map((id) => [id, $(id)]));
 
 let state = null;
 let renderTask = null;
@@ -47,6 +48,7 @@ function resetAll() {
   state = null;
   el.file.value = '';
   el.work.hidden = true;
+  el.reset.hidden = true;
   el.drop.hidden = false;
 }
 
@@ -55,7 +57,8 @@ async function open(file) {
   const my = session;
   el.drop.hidden = true;
   el.work.hidden = false;
-  for (const k of ['detectCard', 'boxCard', 'actions', 'error']) el[k].hidden = true;
+  el.reset.hidden = false;
+  for (const k of ['detectCard', 'boxCard', 'exportCard', 'error', 'saveProgress']) el[k].hidden = true;
   el.fname.textContent = file.name;
   el.fmeta.textContent = `${fmtBytes(file.size)} · reading…`;
   el.saveText.textContent = '';
@@ -94,7 +97,7 @@ async function collectGroups(my) {
     const key = `${Math.round(vp.width)}x${Math.round(vp.height)}`;
     let g = byKey.get(key);
     if (!g) {
-      g = { key, W: vp.width, H: vp.height, pages: [], content: null, detected: null, box: FULL, mode: 'full', done: false };
+      g = { key, W: vp.width, H: vp.height, pages: [], content: null, detected: null, box: { ...FULL }, mode: 'full', done: false };
       byKey.set(key, g);
       state.groups.push(g);
     }
@@ -124,7 +127,6 @@ async function analyse(my) {
     if (my !== session) return;
     const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
     g.content = unionBoxes(g.content, findContentBox(img.data, canvas.width, canvas.height));
-    page.cleanup();
 
     const last = k === plan.length - 1 || plan[k + 1][0] !== g;
     if (last) {
@@ -135,8 +137,9 @@ async function analyse(my) {
   }
   canvas.width = canvas.height = 0;
   el.progress.hidden = true;
-  el.actions.hidden = false;
+  el.exportCard.hidden = false;
   refreshPanel();
+  warmWorker();
 }
 
 function samplePages(pages) {
@@ -159,6 +162,10 @@ function setMode(g, mode) {
     const rt = RATIOS.find((r) => r.id === mode);
     if (rt) g.box = boxForRatio(rt.r, g.W, g.H);
   }
+  boxChanged(g);
+}
+
+function boxChanged(g) {
   if (g === curGroup()) { placeOverlay(); refreshPanel(); }
 }
 
@@ -221,7 +228,7 @@ el.prev.addEventListener('click', () => showPage(state.page - 1));
 el.next.addEventListener('click', () => showPage(state.page + 1));
 el.showContent.addEventListener('change', placeOverlay);
 document.addEventListener('keydown', (e) => {
-  if (!state || el.work.hidden || e.target.closest('input, button')) return;
+  if (!state || el.work.hidden || e.target.closest('input, button, select')) return;
   if (e.key === 'ArrowLeft') showPage(state.page - 1);
   if (e.key === 'ArrowRight') showPage(state.page + 1);
 });
@@ -314,8 +321,9 @@ el.crop.addEventListener('pointermove', (e) => {
     if (drag.h.includes('n')) b.y0 = clamp(s.y0 + dy, 0, s.y1 - MIN);
     if (drag.h.includes('s')) b.y1 = clamp(s.y1 + dy, s.y0 + MIN, 1);
   }
-  drag.g.box = b;
-  if (drag.g.mode !== 'custom') { drag.g.mode = 'custom'; }
+  const g = drag.g;
+  g.box = b;
+  g.mode = 'custom';
   placeOverlay();
   refreshPanel();
 });
@@ -323,54 +331,124 @@ const endDrag = () => { drag = null; };
 el.crop.addEventListener('pointerup', endDrag);
 el.crop.addEventListener('pointercancel', endDrag);
 
-/* ---------- export ---------- */
+/* ---------- export (in a worker, via mupdf) ---------- */
 
 el.download.addEventListener('click', exportPdf);
+el.compress.addEventListener('change', () => {
+  el.ppiField.hidden = !el.compress.checked;
+  el.compressHint.textContent = el.compress.checked
+    ? 'Shrinks photos to the chosen resolution and saves them as JPEG. Text and vector graphics aren\'t touched.'
+    : 'Images are kept as they are.';
+});
+
+let worker = null, workerReady = null;
+const pending = new Map();
+let jobId = 0;
+
+function warmWorker() {
+  if (worker) return workerReady;
+  const w = new Worker(new URL('./export-worker.js', import.meta.url), { type: 'module' });
+  worker = w;
+  workerReady = new Promise((resolve, reject) => {
+    w.addEventListener('message', (e) => {
+      const m = e.data;
+      if (m.type === 'ready') return resolve();
+      const job = pending.get(m.id);
+      if (!job) return;
+      if (m.type === 'progress') job.onProgress(m);
+      else { pending.delete(m.id); m.type === 'done' ? job.resolve(m) : job.reject(new Error(m.message)); }
+    });
+    w.addEventListener('error', (e) => {
+      const err = new Error(e.message || 'The PDF engine failed to load. Check your connection and try again.');
+      reject(err);
+      for (const job of pending.values()) job.reject(err);
+      pending.clear();
+      if (worker === w) { worker = null; workerReady = null; }
+    });
+  });
+  workerReady.catch(() => {});
+  return workerReady;
+}
+
+function retireWorker() {
+  // A fresh worker per export hands the wasm heap back to the browser.
+  worker?.terminate();
+  worker = null;
+  workerReady = null;
+}
 
 async function exportPdf() {
   if (!state) return;
   const my = session;
   el.download.disabled = true;
   el.error.hidden = true;
+  el.saveProgress.hidden = true;
+  const say = (t) => { el.saveText.textContent = t; };
+
   try {
-    el.saveText.textContent = 'Preparing…';
-    await nextFrame();
-    const { PDFDocument } = window.PDFLib;
-    const doc = await PDFDocument.load(state.bytes, { updateMetadata: false });
-    const pages = doc.getPages();
+    // Page boxes in PDF user space. convertToPdfPoint handles /Rotate and
+    // boxes that don't start at 0,0.
+    const boxes = [];
     for (let i = 1; i <= state.n; i++) {
-      const g = state.groupOf[i];
+      const b = state.groupOf[i].box;
+      if (b.x0 === 0 && b.y0 === 0 && b.x1 === 1 && b.y1 === 1) { boxes.push(null); continue; }
       const vp = (await state.pdf.getPage(i)).getViewport({ scale: 1 });
-      // convertToPdfPoint accounts for /Rotate and non-zero box origins.
-      const [ax, ay] = vp.convertToPdfPoint(g.box.x0 * vp.width, g.box.y0 * vp.height);
-      const [bx, by] = vp.convertToPdfPoint(g.box.x1 * vp.width, g.box.y1 * vp.height);
-      const x = Math.min(ax, bx), y = Math.min(ay, by), w = Math.abs(bx - ax), h = Math.abs(by - ay);
-      const p = pages[i - 1];
-      p.setMediaBox(x, y, w, h);
-      p.setCropBox(x, y, w, h);
-      p.setBleedBox(x, y, w, h);
-      p.setTrimBox(x, y, w, h);
-      p.setArtBox(x, y, w, h);
-      if (i % 25 === 0) { el.saveText.textContent = `Cropping page ${i} of ${state.n}…`; await nextFrame(); }
+      const [ax, ay] = vp.convertToPdfPoint(b.x0 * vp.width, b.y0 * vp.height);
+      const [bx, by] = vp.convertToPdfPoint(b.x1 * vp.width, b.y1 * vp.height);
+      boxes.push([Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)].map((v) => Math.round(v * 1000) / 1000));
     }
-    el.saveText.textContent = 'Writing file…';
-    await nextFrame();
-    const out = await doc.save({ useObjectStreams: false });
+    const ppi = Number(el.ppi.value);
+    const compress = el.compress.checked ? { ppi, quality: QUALITY[ppi] ?? 78 } : null;
+
+    say('Loading the PDF engine…');
+    await warmWorker();
     if (my !== session) return;
-    const name = state.file.name.replace(/\.pdf$/i, '') + '_cropped.pdf';
-    const url = URL.createObjectURL(new Blob([out], { type: 'application/pdf' }));
+    const id = ++jobId;
+    const copy = state.bytes.slice();
+    const result = await new Promise((resolve, reject) => {
+      pending.set(id, {
+        resolve, reject,
+        onProgress: (m) => {
+          if (my !== session) return;
+          if (m.phase === 'images' && m.total) {
+            el.saveProgress.hidden = false;
+            el.saveBar.style.width = `${(m.done / m.total) * 100}%`;
+            say(`Compressing images… ${m.done} / ${m.total}`);
+          } else {
+            say({ open: 'Opening the PDF…', pages: 'Removing skipped pages…', scan: 'Finding images…', save: 'Writing the file…' }[m.phase] || 'Working…');
+          }
+        },
+      });
+      worker.postMessage({ id, bytes: copy, opts: { boxes, compress } }, [copy.buffer]);
+    });
+    retireWorker();
+    if (my !== session) return;
+
+    const base = state.file.name.replace(/\.pdf$/i, '');
+    const name = `${base}${compress ? `_${ppi}ppi` : '_cropped'}.pdf`;
+    const url = URL.createObjectURL(new Blob([result.bytes], { type: 'application/pdf' }));
     const a = Object.assign(document.createElement('a'), { href: url, download: name });
     document.body.append(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    el.saveText.textContent = `Saved ${name} (${fmtBytes(out.length)}).`;
+    el.saveProgress.hidden = true;
+    const before = state.file.size, after = result.bytes.length;
+    const line = document.createElement('div');
+    line.className = 'result';
+    line.append(`Saved ${name}: ${fmtBytes(before)} → `);
+    const strong = document.createElement('strong');
+    strong.textContent = fmtBytes(after);
+    line.append(strong, after < before ? ` (${Math.min(99, Math.floor((1 - after / before) * 100))}% smaller)` : '');
+    el.saveText.replaceChildren(line);
   } catch (err) {
     console.error(err);
-    el.saveText.textContent = '';
-    showError(/encrypt/i.test(err?.message || '')
+    retireWorker();
+    el.saveProgress.hidden = true;
+    say('');
+    showError(/encrypt|password/i.test(err?.message || '')
       ? 'This PDF is encrypted, so it can’t be rewritten here.'
-      : `Couldn't write the cropped PDF: ${err?.message || err}`);
+      : `Couldn't write the PDF: ${err?.message || err}`);
   } finally {
     el.download.disabled = false;
   }
@@ -379,15 +457,14 @@ async function exportPdf() {
 /* ---------- helpers ---------- */
 
 function showError(msg) { el.error.textContent = msg; el.error.hidden = false; el.progress.hidden = true; }
-const nextFrame = () => new Promise((r) => setTimeout(r, 0));
 const fmtPt = (v) => (Math.round(v * 10) / 10).toString();
 const fmtMm = (pt) => (Math.round((pt * 25.4 / 72) * 10) / 10).toString();
+const article = (s) => (/^(a|e|i|o|u|8|11|18)/i.test(s) ? 'An' : 'A');
 function fmtBytes(b) {
   if (b < 1e3) return `${b} B`;
   if (b < 1e6) return `${(b / 1e3).toFixed(0)} KB`;
   return `${(b / 1e6).toFixed(1)} MB`;
 }
-const article = (s) => (/^(a|e|i|o|u|8|11|18)/i.test(s) ? 'An' : 'A');
 function fmtSheet(W, H) {
   const iso = [['A3', 842, 1191], ['A4', 595, 842], ['A5', 420, 595], ['Letter', 612, 792], ['Legal', 612, 1008]];
   const lo = Math.min(W, H), hi = Math.max(W, H);

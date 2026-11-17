@@ -4,10 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>TruePage</title>
-  <meta name="description" content="Fix PDFs exported at the wrong page size. Detects the real page and crops to it, entirely in your browser.">
+  <meta name="description" content="Fix PDFs exported at the wrong page size. Detects the real page, crops to it and compresses images, entirely in your browser.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='7' width='28' height='18' rx='2' fill='none' stroke='%23888' stroke-width='2' stroke-dasharray='3 2.5'/%3E%3Crect x='11' y='3' width='10' height='26' rx='1.5' fill='%23d2551f'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="style.css">
-  <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
   <script type="module" src="app.js"></script>
 </head>
 <body>
@@ -33,7 +32,7 @@
           <path d="M36 36l4 4-4 4M84 36l-4 4 4 4" class="arrow"/>
         </svg>
         <h1>Drop a PDF here</h1>
-        <p>TruePage finds the real page inside a sheet that was exported at the wrong size (a portrait slide on a landscape page, for example) and crops to it.</p>
+        <p>TruePage finds the real page inside a sheet that was exported at the wrong size (a portrait slide on a landscape page, for example), crops to it, and can shrink the file.</p>
         <button class="btn primary" id="pick" type="button">Choose a PDF</button>
       </div>
     </section>
@@ -59,6 +58,7 @@
           <button class="btn icon" id="next" type="button" aria-label="Next page">›</button>
           <label class="toggle"><input type="checkbox" id="showContent" checked> Show detected content</label>
         </nav>
+
       </div>
 
       <aside class="panel">
@@ -92,13 +92,24 @@
           <p class="hint">Drag the edges in the preview to fine-tune.</p>
         </div>
 
-        <div class="actions" id="actions" hidden>
-          <button class="btn primary wide" id="download" type="button">Download cropped PDF</button>
+        <div class="card" id="exportCard" hidden>
+          <div class="card-h"><span>Export</span></div>
+          <label class="check"><input type="checkbox" id="compress" checked> Compress images</label>
+          <label class="field" id="ppiField">
+            <span>Image resolution</span>
+            <select id="ppi">
+              <option value="150">150 ppi · smallest file</option>
+              <option value="200" selected>200 ppi · sharp on screens</option>
+              <option value="300">300 ppi · good for printing</option>
+            </select>
+          </label>
+          <p class="hint" id="compressHint">Shrinks photos to the chosen resolution and saves them as JPEG. Text and vector graphics aren't touched.</p>
+          <button class="btn primary wide" id="download" type="button">Download PDF</button>
+          <div class="progress" id="saveProgress" hidden><div class="bar"><span id="saveBar"></span></div></div>
           <div class="ptext" id="saveText"></div>
-          <button class="btn ghost wide" id="reset" type="button">Start over</button>
         </div>
 
-        <p class="note">Cropping changes which part of each page is shown. The parts outside are hidden, not deleted, so the file stays about the same size.</p>
+        <button class="btn ghost wide" id="reset" type="button" hidden>Start over</button>
         <div class="error" id="error" hidden></div>
       </aside>
     </section>

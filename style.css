@@ -136,3 +136,13 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
   .work { grid-template-columns: 1fr; }
   .stage-wrap { padding: 12px; }
 }
+
+/* Export */
+.check { display: flex; gap: 8px; align-items: center; font-weight: 600; cursor: pointer; margin-bottom: 10px; }
+.check input { width: 17px; height: 17px; margin: 0; accent-color: var(--accent); }
+.field { display: grid; gap: 4px; font-size: 13px; color: var(--ink-2); margin-bottom: 8px; }
+.field select { font: inherit; font-size: 14px; color: var(--ink); background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; }
+#exportCard .hint { margin: 0 0 12px !important; }
+#exportCard .progress { margin-top: 10px; }
+.result { margin-top: 6px; font-size: 14px; color: var(--ink); }
+.result strong { color: var(--ok); }
