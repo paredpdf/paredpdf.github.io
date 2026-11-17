@@ -22,7 +22,7 @@ const $ = (id) => document.getElementById(id);
 const el = Object.fromEntries([
   'drop', 'file', 'pick', 'work', 'stageWrap', 'stage', 'canvas', 'crop', 'shade', 'contentOutline', 'excludedBadge',
   'prev', 'next', 'pageLabel', 'includePage', 'showContent',
-  'selCount', 'range', 'rangeErr', 'selAll', 'selNone', 'thumbs',
+  'selCount', 'range', 'rangeErr', 'selAll', 'selNone', 'resetOrder', 'thumbs',
   'fname', 'fmeta', 'progress', 'progressBar', 'progressText',
   'detectCard', 'confidence', 'detectText', 'groupSel',
   'boxCard', 'orientP', 'orientL', 'chips', 'rSize', 'rMm', 'rRatio',
@@ -83,7 +83,8 @@ async function open(file) {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const pdf = await pdfjsLib.getDocument({ data: bytes, isEvalSupported: false, ...PDFJS_ASSETS }).promise;
     if (my !== session) return;
-    state = { file, pdf, n: pdf.numPages, page: 1, groups: [], groupOf: [], selected: null, lastToggled: null, thumbs: [] };
+    state = { file, pdf, n: pdf.numPages, page: 1, groups: [], groupOf: [], selected: null, lastToggled: null, thumbs: [], order: [] };
+    state.order = Array.from({ length: state.n }, (_, i) => i + 1);
     state.selected = new Uint8Array(state.n + 1).fill(1);
     await collectGroups(my);
     if (my !== session) return;
@@ -287,14 +288,15 @@ function chip(label, pressed, onClick) {
 
 /* ---------- preview ---------- */
 
-el.prev.addEventListener('click', () => showPage(state.page - 1));
-el.next.addEventListener('click', () => showPage(state.page + 1));
+el.prev.addEventListener('click', () => stepPage(-1));
+el.next.addEventListener('click', () => stepPage(1));
+const stepPage = (d) => showPage(state.order[state.order.indexOf(state.page) + d]);
 el.showContent.addEventListener('change', placeOverlay);
 el.includePage.addEventListener('change', () => { setSelected(state.page, el.includePage.checked); });
 document.addEventListener('keydown', (e) => {
   if (!state || el.work.hidden || e.target.closest('input, button, select')) return;
-  if (e.key === 'ArrowLeft') showPage(state.page - 1);
-  if (e.key === 'ArrowRight') showPage(state.page + 1);
+  if (e.key === 'ArrowLeft') stepPage(-1);
+  if (e.key === 'ArrowRight') stepPage(1);
 });
 let resizeTimer;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => state && showPage(state.page), 120); });
@@ -304,9 +306,7 @@ async function showPage(n) {
   const prevGroup = curGroup();
   const prevPage = state.page;
   state.page = n;
-  el.pageLabel.textContent = `Page ${n} of ${state.n}`;
-  el.prev.disabled = n === 1;
-  el.next.disabled = n === state.n;
+  updatePager();
   state.thumbs[prevPage]?.el.classList.remove('cur');
   state.thumbs[n]?.el.classList.add('cur');
   updateCurrentInclusion();
@@ -439,13 +439,22 @@ function buildThumbs() {
     t.dataset.p = p;
     const cb = Object.assign(document.createElement('input'), { type: 'checkbox', checked: true });
     cb.setAttribute('aria-label', `Export page ${p}`);
+    const frame = document.createElement('div');
+    frame.className = 'tframe';
     const clip = document.createElement('div');
     clip.className = 'tclip';
     clip.title = `Preview page ${p}`;
     const canvas = document.createElement('canvas');
     clip.append(canvas);
+    frame.append(clip);
+    const bar = document.createElement('div');
+    bar.className = 'tbar';
+    const handle = Object.assign(document.createElement('button'), { type: 'button', className: 'tdrag', textContent: '⠿' });
+    handle.setAttribute('aria-label', `Move page ${p}: drag, or use the arrow keys`);
+    handle.title = 'Drag to reorder';
     const num = Object.assign(document.createElement('span'), { className: 'tnum', textContent: p });
-    t.append(cb, clip, num);
+    bar.append(handle, num);
+    t.append(cb, frame, bar);
     frag.append(t);
     state.thumbs[p] = { el: t, cb, clip, canvas, rendered: false };
   }
@@ -468,6 +477,7 @@ function layoutThumbs(g) {
   for (const p of g.pages) {
     const t = state.thumbs[p];
     Object.assign(t.clip.style, { width: `${w}px`, height: `${h}px` });
+    Object.assign(t.clip.parentElement.style, { width: `${w}px`, height: `${h}px` });
     Object.assign(t.canvas.style, { width: `${cw}px`, height: `${ch}px`, left: `${-b.x0 * cw}px`, top: `${-b.y0 * ch}px` });
   }
 }
@@ -499,17 +509,102 @@ async function pumpThumbs() {
   }
 }
 
+/* ---------- reordering pages ---------- */
+
+// Drag the handle under a thumbnail (any pointer), or the thumbnail itself
+// with a mouse. Tiles move live as you drag; the order is read back from
+// the grid when you let go. The handle also responds to arrow keys.
+let reorder = null, justDragged = false;
+
+el.thumbs.addEventListener('pointerdown', (e) => {
+  const tile = e.target.closest('.thumb');
+  const handle = e.target.closest('.tdrag');
+  if (!tile || e.button > 0) return;
+  if (!handle && !(e.pointerType === 'mouse' && e.target.closest('.tclip'))) return;
+  reorder = { tile, id: e.pointerId, x: e.clientX, y: e.clientY, started: false };
+  e.target.setPointerCapture(e.pointerId);
+});
+el.thumbs.addEventListener('pointermove', (e) => {
+  if (!reorder || e.pointerId !== reorder.id) return;
+  if (!reorder.started) {
+    if (Math.hypot(e.clientX - reorder.x, e.clientY - reorder.y) < 6) return;
+    reorder.started = true;
+    reorder.tile.classList.add('dragging');
+  }
+  const over = document.elementFromPoint(e.clientX, e.clientY)?.closest('.thumb');
+  if (over && over !== reorder.tile && el.thumbs.contains(over)) {
+    const r = over.getBoundingClientRect();
+    over[e.clientX > r.left + r.width / 2 ? 'after' : 'before'](reorder.tile);
+  }
+  const box = el.thumbs.getBoundingClientRect();
+  if (e.clientY < box.top + 40) el.thumbs.scrollTop -= 16;
+  else if (e.clientY > box.bottom - 40) el.thumbs.scrollTop += 16;
+});
+const endReorder = (e) => {
+  if (!reorder || e.pointerId !== reorder.id) return;
+  if (reorder.started) {
+    reorder.tile.classList.remove('dragging');
+    readOrderFromGrid();
+    justDragged = true;
+    setTimeout(() => { justDragged = false; }, 0); // swallow the click that follows
+  }
+  reorder = null;
+};
+el.thumbs.addEventListener('pointerup', endReorder);
+el.thumbs.addEventListener('pointercancel', endReorder);
+
+el.thumbs.addEventListener('keydown', (e) => {
+  const handle = e.target.closest('.tdrag');
+  if (!handle) return;
+  const d = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[e.key];
+  if (!d) return;
+  e.preventDefault();
+  const tile = handle.closest('.thumb');
+  const sib = d < 0 ? tile.previousElementSibling : tile.nextElementSibling;
+  if (!sib) return;
+  sib[d < 0 ? 'before' : 'after'](tile);
+  handle.focus();
+  readOrderFromGrid();
+});
+
+el.resetOrder.addEventListener('click', () => {
+  state.order = Array.from({ length: state.n }, (_, i) => i + 1);
+  el.thumbs.append(...state.order.map((p) => state.thumbs[p].el));
+  orderChanged();
+});
+
+function readOrderFromGrid() {
+  state.order = [...el.thumbs.children].map((t) => Number(t.dataset.p));
+  orderChanged();
+}
+
+function orderChanged() {
+  el.resetOrder.hidden = state.order.every((p, i) => p === i + 1);
+  updatePager();
+}
+
+function updatePager() {
+  const i = state.order.indexOf(state.page);
+  const moved = i + 1 !== state.page;
+  el.pageLabel.textContent = `Page ${state.page} of ${state.n}${moved ? ` · now ${i + 1}${ordinal(i + 1)}` : ''}`;
+  el.prev.disabled = i === 0;
+  el.next.disabled = i === state.n - 1;
+}
+
+const ordinal = (n) => (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th');
+
 /* ---------- page selection ---------- */
 
 el.thumbs.addEventListener('click', (e) => {
   const t = e.target.closest('.thumb');
-  if (!t) return;
+  if (!t || justDragged) return;
   const p = Number(t.dataset.p);
   if (e.target.matches('input[type=checkbox]')) {
     const v = e.target.checked;
     if (e.shiftKey && state.lastToggled) {
-      const [a, b] = [Math.min(p, state.lastToggled), Math.max(p, state.lastToggled)];
-      for (let i = a; i <= b; i++) state.selected[i] = v ? 1 : 0;
+      // A range in the order the pages are shown, which may differ after reordering.
+      const i0 = state.order.indexOf(p), i1 = state.order.indexOf(state.lastToggled);
+      for (let i = Math.min(i0, i1); i <= Math.max(i0, i1); i++) state.selected[state.order[i]] = v ? 1 : 0;
     } else {
       state.selected[p] = v ? 1 : 0;
     }
@@ -667,7 +762,7 @@ async function exportPdf() {
         },
       });
       // Transferred, not copied: the worker owns the only copy from here on.
-      worker.postMessage({ id, bytes: data, opts: { boxes, keep: pages.map((p) => p - 1), compress } }, [data.buffer]);
+      worker.postMessage({ id, bytes: data, opts: { boxes, keep: state.order.filter((p) => state.selected[p]).map((p) => p - 1), compress } }, [data.buffer]);
     });
     retireWorker();
     if (my !== session) return;

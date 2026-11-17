@@ -31,7 +31,14 @@ function summarise(bytes) {
     const o = doc.newIndirect(n);
     if (o.isStream() && o.get('Subtype').isName() && o.get('Subtype').asName() === 'Image') filters.push(o.get('Filter').asName());
   }
-  return { pages, filters };
+  // Each fixture page has a marker bar 60 + 30·(page − 1) pt wide.
+  const order = [];
+  for (let i = 0; i < doc.countPages(); i++) {
+    const c = doc.findPage(i).get('Contents');
+    const m = c.readStream().asString().match(/520 (\d+) 20 re/);
+    order.push(m ? (Number(m[1]) - 60) / 30 + 1 : null);
+  }
+  return { pages, filters, order };
 }
 
 test('reads the exact page outline when the PDF marks it', async ({ page }) => {
@@ -201,4 +208,64 @@ test('frees thumbnails scrolled far away and redraws them on return', async ({ p
   await expect.poll(() => page.locator('.thumb[data-p="120"] canvas').evaluate((c) => c.width)).toBeGreaterThan(0);
   await page.locator('#thumbs').evaluate((el) => { el.scrollTop = 0; });
   await expect.poll(() => first.evaluate((c) => c.width)).toBeGreaterThan(0);
+});
+
+const gridOrder = (page) => page.locator('.thumb').evaluateAll((ts) => ts.map((t) => Number(t.dataset.p)));
+
+test('reorders pages from the keyboard and exports them in that order', async ({ page }) => {
+  await load(page);
+  await page.locator('.thumb[data-p="1"] .tdrag').focus();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  expect(await gridOrder(page)).toEqual([2, 3, 1, 4, 5, 6]);
+  await expect(page.locator('.thumb[data-p="1"] .tdrag')).toBeFocused();
+  await expect(page.locator('#pageLabel')).toHaveText('Page 1 of 6 · now 3rd');
+  await expect(page.locator('#resetOrder')).toBeVisible();
+  const { order } = summarise(await download(page));
+  expect(order).toEqual([2, 3, 1, 4, 5, 6]);
+});
+
+test('reorders pages by dragging a thumbnail', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'mouse drag; touch uses the handle');
+  await load(page);
+  const from = await page.locator('.thumb[data-p="6"] .tclip').boundingBox();
+  const to = await page.locator('.thumb[data-p="1"] .tclip').boundingBox();
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(to.x + 5, to.y + to.height / 2, { steps: 10 });
+  await page.mouse.up();
+  expect(await gridOrder(page)).toEqual([6, 1, 2, 3, 4, 5]);
+  // The drag must not also open the page in the preview.
+  await expect(page.locator('#pageLabel')).toHaveText('Page 1 of 6 · now 2nd');
+});
+
+test('reorders pages by dragging the handle on a touch screen', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'touch only');
+  await load(page);
+  const handle = page.locator('.thumb[data-p="3"] .tdrag');
+  const to = await page.locator('.thumb[data-p="1"] .tclip').boundingBox();
+  const from = await handle.boundingBox();
+  // Playwright's touchscreen API only taps, so dispatch the pointer events a finger produces.
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+  await touch('touchStart', from.x + from.width / 2, from.y + from.height / 2);
+  for (let i = 1; i <= 8; i++) {
+    await touch('touchMove', from.x + (to.x + 5 - from.x) * (i / 8), from.y + (to.y + to.height / 2 - from.y) * (i / 8));
+  }
+  await touch('touchEnd');
+  expect(await gridOrder(page)).toEqual([3, 1, 2, 4, 5, 6]);
+});
+
+test('previous and next follow the new order, and reset restores it', async ({ page }) => {
+  await load(page);
+  await page.locator('.thumb[data-p="1"] .tdrag').focus();
+  await page.keyboard.press('ArrowRight');
+  await page.click('.thumb[data-p="2"] .tclip');
+  await expect(page.locator('#prev')).toBeDisabled();
+  await page.click('#next');
+  await expect(page.locator('#pageLabel')).toHaveText('Page 1 of 6 · now 2nd');
+  await page.click('#resetOrder');
+  expect(await gridOrder(page)).toEqual([1, 2, 3, 4, 5, 6]);
+  await expect(page.locator('#resetOrder')).toBeHidden();
+  await expect(page.locator('#pageLabel')).toHaveText('Page 1 of 6');
 });
