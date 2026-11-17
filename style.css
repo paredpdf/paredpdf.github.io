@@ -181,7 +181,11 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 /* Reordering */
 .tframe { display: grid; place-items: center; }
 .tbar { display: flex; align-items: center; gap: 4px; }
-.tdrag { font: inherit; font-size: 14px; line-height: 1; padding: 3px 4px; border: 0; border-radius: 4px; background: transparent; color: var(--ink-2); cursor: grab; touch-action: none; }
-.tdrag:hover, .tdrag:focus-visible { background: var(--surface-2); color: var(--ink); }
+.tbar .trot { margin-left: auto; }
+.tdrag, .trot { font: inherit; font-size: 14px; line-height: 1; padding: 3px 4px; border: 0; border-radius: 4px; background: transparent; color: var(--ink-2); cursor: pointer; }
+.tdrag { cursor: grab; touch-action: none; }
+.tdrag:hover, .tdrag:focus-visible, .trot:hover, .trot:focus-visible { background: var(--surface-2); color: var(--ink); }
+.trot:focus-visible { outline: 2px solid var(--accent); }
+.tclip { transition: transform .15s; }
 .tdrag:focus-visible { outline: 2px solid var(--accent); }
 .thumb.dragging { opacity: .45; pointer-events: none; }

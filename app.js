@@ -20,7 +20,7 @@ const QUALITY = { 150: 72, 200: 78, 300: 85 }; // JPEG quality per resolution pr
 
 const $ = (id) => document.getElementById(id);
 const el = Object.fromEntries([
-  'drop', 'file', 'pick', 'work', 'stageWrap', 'stage', 'canvas', 'crop', 'shade', 'contentOutline', 'excludedBadge',
+  'drop', 'file', 'pick', 'work', 'stageWrap', 'stage', 'canvas', 'crop', 'shade', 'contentOutline', 'excludedBadge', 'rotBadge',
   'prev', 'next', 'pageLabel', 'includePage', 'showContent',
   'selCount', 'range', 'rangeErr', 'selAll', 'selNone', 'resetOrder', 'thumbs',
   'fname', 'fmeta', 'progress', 'progressBar', 'progressText',
@@ -85,6 +85,7 @@ async function open(file) {
     if (my !== session) return;
     state = { file, pdf, n: pdf.numPages, page: 1, groups: [], groupOf: [], selected: null, lastToggled: null, thumbs: [], order: [] };
     state.order = Array.from({ length: state.n }, (_, i) => i + 1);
+    state.rot = new Int16Array(state.n + 1); // extra clockwise rotation per page
     state.selected = new Uint8Array(state.n + 1).fill(1);
     await collectGroups(my);
     if (my !== session) return;
@@ -453,7 +454,10 @@ function buildThumbs() {
     handle.setAttribute('aria-label', `Move page ${p}: drag, or use the arrow keys`);
     handle.title = 'Drag to reorder';
     const num = Object.assign(document.createElement('span'), { className: 'tnum', textContent: p });
-    bar.append(handle, num);
+    const rotate = Object.assign(document.createElement('button'), { type: 'button', className: 'trot', textContent: '↻' });
+    rotate.setAttribute('aria-label', `Rotate page ${p} clockwise`);
+    rotate.title = 'Rotate 90° clockwise';
+    bar.append(handle, num, rotate);
     t.append(cb, frame, bar);
     frag.append(t);
     state.thumbs[p] = { el: t, cb, clip, canvas, rendered: false };
@@ -478,6 +482,9 @@ function layoutThumbs(g) {
     const t = state.thumbs[p];
     Object.assign(t.clip.style, { width: `${w}px`, height: `${h}px` });
     Object.assign(t.clip.parentElement.style, { width: `${w}px`, height: `${h}px` });
+    // Show the page turned, scaled to fit the same footprint when on its side.
+    const deg = state.rot[p];
+    t.clip.style.transform = deg ? `rotate(${deg}deg)${deg % 180 ? ` scale(${Math.min(w / h, h / w)})` : ''}` : '';
     Object.assign(t.canvas.style, { width: `${cw}px`, height: `${ch}px`, left: `${-b.x0 * cw}px`, top: `${-b.y0 * ch}px` });
   }
 }
@@ -610,6 +617,10 @@ el.thumbs.addEventListener('click', (e) => {
     }
     state.lastToggled = p;
     updateSelectionUI();
+  } else if (e.target.closest('.trot')) {
+    state.rot[p] = (state.rot[p] + 90) % 360;
+    layoutThumbs(state.groupOf[p]);
+    updateCurrentInclusion();
   } else if (e.target.closest('.tclip')) {
     showPage(p);
   }
@@ -665,6 +676,9 @@ function updateCurrentInclusion() {
   const on = !!state.selected[state.page];
   el.includePage.checked = on;
   el.excludedBadge.hidden = on;
+  const deg = state.rot[state.page];
+  el.rotBadge.hidden = !on || !deg;
+  el.rotBadge.textContent = `Turned ${deg}° clockwise in the export`;
   el.stage.classList.toggle('excluded', !on);
 }
 
@@ -762,7 +776,8 @@ async function exportPdf() {
         },
       });
       // Transferred, not copied: the worker owns the only copy from here on.
-      worker.postMessage({ id, bytes: data, opts: { boxes, keep: state.order.filter((p) => state.selected[p]).map((p) => p - 1), compress } }, [data.buffer]);
+      worker.postMessage({ id, bytes: data, opts: { boxes, keep: state.order.filter((p) => state.selected[p]).map((p) => p - 1),
+        rotate: Array.from(state.rot.subarray(1)), compress } }, [data.buffer]);
     });
     retireWorker();
     if (my !== session) return;

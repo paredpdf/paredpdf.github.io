@@ -67,7 +67,8 @@ export function inspect(bytes) {
   for (let i = 0; i < doc.countPages(); i++) {
     const page = doc.findPage(i);
     const box = (k) => { const b = page.get(k); return b.isArray() ? [0, 1, 2, 3].map((j) => b.get(j).asNumber()) : null; };
-    pages.push({ mediaBox: box('MediaBox'), cropBox: box('CropBox'), trimBox: box('TrimBox') });
+    const rot = page.getInheritable('Rotate');
+    pages.push({ mediaBox: box('MediaBox'), cropBox: box('CropBox'), trimBox: box('TrimBox'), rotate: rot.isNumber() ? rot.asNumber() : 0 });
   }
   const images = [];
   for (let n = 1; n < doc.countObjects(); n++) {

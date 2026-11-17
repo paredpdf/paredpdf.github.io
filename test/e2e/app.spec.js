@@ -38,7 +38,12 @@ function summarise(bytes) {
     const m = c.readStream().asString().match(/520 (\d+) 20 re/);
     order.push(m ? (Number(m[1]) - 60) / 30 + 1 : null);
   }
-  return { pages, filters, order };
+  const rotate = [];
+  for (let i = 0; i < doc.countPages(); i++) {
+    const r = doc.findPage(i).getInheritable('Rotate');
+    rotate.push(r.isNumber() ? r.asNumber() : 0);
+  }
+  return { pages, filters, order, rotate };
 }
 
 test('reads the exact page outline when the PDF marks it', async ({ page }) => {
@@ -268,4 +273,25 @@ test('previous and next follow the new order, and reset restores it', async ({ p
   expect(await gridOrder(page)).toEqual([1, 2, 3, 4, 5, 6]);
   await expect(page.locator('#resetOrder')).toBeHidden();
   await expect(page.locator('#pageLabel')).toHaveText('Page 1 of 6');
+});
+
+test('rotates pages and exports the rotation', async ({ page }) => {
+  await load(page);
+  const rot = page.locator('.thumb[data-p="2"] .trot');
+  await rot.click();
+  await expect(page.locator('.thumb[data-p="2"] .tclip')).toHaveCSS('transform', /matrix/);
+  await rot.click();
+  await page.locator('.thumb[data-p="4"] .trot').click();
+  await page.click('.thumb[data-p="2"] .tclip');
+  await expect(page.locator('#rotBadge')).toHaveText('Turned 180° clockwise in the export');
+  const { rotate } = summarise(await download(page));
+  expect(rotate).toEqual([0, 180, 0, 90, 0, 0]);
+});
+
+test('four turns bring a page back to upright', async ({ page }) => {
+  await load(page);
+  const rot = page.locator('.thumb[data-p="1"] .trot');
+  for (let i = 0; i < 4; i++) await rot.click();
+  await expect(page.locator('#rotBadge')).toBeHidden();
+  await expect(page.locator('.thumb[data-p="1"] .tclip')).toHaveCSS('transform', 'none');
 });

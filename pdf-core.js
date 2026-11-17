@@ -10,6 +10,7 @@ const SKIP_FILTERS = new Set(['JBIG2Decode', 'CCITTFaxDecode']);
  * @param bytes  Uint8Array of the source PDF
  * @param opts   { boxes: (number[4]|null)[] per source page (PDF user space),
  *                 keep: 0-based source page indices to keep, in order,
+ *                 rotate: degrees clockwise to add, per source page (multiples of 90),
  *                 compress: null | { ppi, quality },
  *                 encodeJpeg?: async (rgb, w, h, quality) => Uint8Array }
  *                 (optional RGB encoder; the browser's uses 4:2:0 chroma
@@ -28,6 +29,14 @@ export async function processPdf(mupdf, bytes, opts, progress = () => {}) {
     page.put('MediaBox', b);
     page.put('CropBox', b);
     for (const k of ['BleedBox', 'TrimBox', 'ArtBox']) page.delete(k);
+  });
+
+  // Extra clockwise rotation per source page, added to any /Rotate it has.
+  opts.rotate?.forEach((deg, i) => {
+    if (!deg || i >= n) return;
+    const page = doc.findPage(i);
+    const cur = page.getInheritable('Rotate');
+    page.put('Rotate', ((((cur.isNumber() ? cur.asNumber() : 0) + deg) % 360) + 360) % 360);
   });
 
   const keep = opts.keep ?? [...Array(n).keys()];

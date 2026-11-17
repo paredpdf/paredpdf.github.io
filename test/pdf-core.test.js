@@ -32,6 +32,21 @@ test('keeps only the selected pages, in the given order', async () => {
   assert.deepEqual(inspect(bytes).pages.map((p) => p.mediaBox[2]), [800, 600]);
 });
 
+test('rotates pages, adding to any rotation they already have', async () => {
+  // Page 3 starts rotated 90°.
+  const doc = new mupdf.PDFDocument(makePdf([{ ...A4L }, { ...A4L }, { ...A4L }]));
+  doc.findPage(2).put('Rotate', 90);
+  const src = doc.saveToBuffer('').asUint8Array().slice();
+  const { bytes } = await run(src, { rotate: [90, 0, 270] });
+  assert.deepEqual(inspect(bytes).pages.map((p) => p.rotate), [90, 0, 0]);
+});
+
+test('rotation follows the page when pages are reordered', async () => {
+  const src = makePdf([{ W: 600, H: 600 }, { W: 700, H: 600 }]);
+  const { bytes } = await run(src, { keep: [1, 0], rotate: [0, 180] });
+  assert.deepEqual(inspect(bytes).pages.map((p) => [p.mediaBox[2], p.rotate]), [[700, 180], [600, 0]]);
+});
+
 test('refuses to export zero pages', async () => {
   await assert.rejects(run(makePdf([{ ...A4L }]), { keep: [] }), /No pages selected/);
 });
