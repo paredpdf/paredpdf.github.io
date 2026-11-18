@@ -36,7 +36,7 @@ http.createServer((req, res) => {
     // Mark the app's own scripts with the version, so a test can tell which
     // deploy a page is running.
     else if (version && file.endsWith('.js') && path.dirname(file) === root) data = `${data}\n/* deployed ${version} */\n`;
-    res.writeHead(200, { 'content-type': types[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-cache' });
+    res.writeHead(200, { 'content-type': types[path.extname(file)] || 'application/octet-stream' });
     res.end(data);
   });
 }).listen(port, '127.0.0.1', () => console.log(`serving ${root} on http://127.0.0.1:${port}`));
