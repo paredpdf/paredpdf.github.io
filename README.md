@@ -49,7 +49,7 @@ npm run test:e2e -- --project=desktop --project=firefox   # some of them
 
 `test/e2e/a11y.spec.js` runs axe (WCAG 2.1 A and AA) on every screen: the start screen, the working screen, the signature dialog, a placed signature, and the warnings, in light and dark mode and in a left-to-right and a right-to-left language.
 
-`PARED_CHROMIUM=/usr/bin/chromium` uses an installed Chromium instead of a download. WebKit needs Ubuntu's system libraries, so on other Linux systems leave it to CI, which runs each engine as its own job.
+`PARED_CHROMIUM=/usr/bin/chromium` uses an installed Chromium instead of a download. WebKit needs Ubuntu's system libraries, so on other Linux systems leave it to CI. CI runs each project as its own parallel job inside Playwright's container image (`mcr.microsoft.com/playwright`, the same version as in `package.json`; a test checks), so no browsers or system libraries are installed per run.
 
 ## Files
 
