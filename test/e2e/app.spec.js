@@ -270,8 +270,9 @@ test('reorders pages by dragging a thumbnail', async ({ page, isMobile }) => {
   await expect(page.locator('#pageLabel')).toHaveText('Page 1 of 6 · now 2nd');
 });
 
-test('reorders pages by dragging the handle on a touch screen', async ({ page, isMobile }) => {
+test('reorders pages by dragging the handle on a touch screen', async ({ page, isMobile, browserName }) => {
   test.skip(!isMobile, 'touch only');
+  test.skip(browserName !== 'chromium', 'fakes touch input through the Chrome DevTools protocol');
   await load(page);
   const handle = page.locator('.thumb[data-p="3"] .tdrag');
   const to = await page.locator('.thumb[data-p="1"] .tclip').boundingBox();

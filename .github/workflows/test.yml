@@ -20,8 +20,21 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  # One job per browser engine, in parallel. WebKit is Safari's engine, so
+  # its desktop and iPhone runs are the closest we get to iOS here.
   e2e:
+    name: e2e (${{ matrix.browser }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - browser: chromium
+            projects: --project=desktop --project=phone
+          - browser: firefox
+            projects: --project=firefox
+          - browser: webkit
+            projects: --project=webkit --project=iphone
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,8 +42,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+      - run: npm run browsers -- --with-deps ${{ matrix.browser }}
+      - run: npm run test:e2e -- ${{ matrix.projects }}
 
   # Publishes the site once both test jobs pass, with the commit and deploy
   # time stamped into index.html. Needs Settings → Pages → Source set to

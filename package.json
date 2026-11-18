@@ -6,8 +6,9 @@
   "type": "module",
   "scripts": {
     "test": "node --test \"test/*.test.js\"",
-    "test:e2e": "playwright test",
-    "vendor": "node scripts/vendor.js"
+    "test:e2e": "PLAYWRIGHT_BROWSERS_PATH=.browsers playwright test",
+    "vendor": "node scripts/vendor.js",
+    "browsers": "PLAYWRIGHT_BROWSERS_PATH=.browsers playwright install"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1",

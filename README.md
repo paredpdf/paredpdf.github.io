@@ -30,6 +30,16 @@ npm test
 
 The tests use Node's built-in test runner and cover page detection (`detect.js`), page-range parsing (`pages.js`) and the export engine (`pdf-core.js`). The engine tests run against mupdf 1.28.1, the same version the site loads, and build their test PDFs in code. GitHub Actions runs them on every push to `main` and on pull requests.
 
+Browser tests use Playwright, in Chromium (desktop and Pixel 7), Firefox, and WebKit (desktop Safari and iPhone 14):
+
+```sh
+npm run browsers          # downloads the browsers into .browsers/ in this folder
+npm run test:e2e          # all of them
+npm run test:e2e -- --project=desktop --project=firefox   # some of them
+```
+
+`PARED_CHROMIUM=/usr/bin/chromium` uses an installed Chromium instead of a download. WebKit needs Ubuntu's system libraries, so on other Linux systems leave it to CI, which runs each engine as its own job.
+
 ## Files
 
 - `detect.js` holds the page detection logic. It has no DOM or pdf.js dependencies.
