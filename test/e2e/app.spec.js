@@ -444,3 +444,26 @@ test('explains a bad page range in Hebrew', async ({ page }) => {
   await page.press('#range', 'Enter');
   await expect(page.locator('#rangeErr')).toHaveText('"5-2" הפוך. התכוונתם ל־2-5?');
 });
+
+/* ---------- version footer ---------- */
+
+test('a copy served from the repo shows the source link but no version', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('.foot a').first()).toHaveText('Source code');
+  await expect(page.locator('#version')).toBeHidden();
+});
+
+test('a deployed copy shows its commit and deploy time', async ({ page }) => {
+  const { stamp } = await import('../../scripts/stamp.js');
+  const sha = '91fc7b0e3d2a4c5b6a7980f1e2d3c4b5a6978877';
+  await page.route(/\/(\?.*)?$/, async (route) => {
+    const res = await route.fetch();
+    await route.fulfill({ response: res, body: stamp(await res.text(), sha, '2026-11-18T14:02:00Z') });
+  });
+  await page.goto('/');
+  const link = page.locator('#versionLink');
+  await expect(link).toHaveText(/^Version 91fc7b0, deployed 18 Nov 2026, \d\d:02$/);
+  await expect(link).toHaveAttribute('href', `https://github.com/paredpdf/paredpdf.github.io/commit/${sha}`);
+  await page.click('#lang');
+  await expect(link).toHaveText(/^גרסה ⁦91fc7b0⁩, עלתה ב־.*2026/);
+});

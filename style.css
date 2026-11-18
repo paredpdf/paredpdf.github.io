@@ -200,3 +200,8 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 .thumb.dragging { opacity: .45; pointer-events: none; }
 .scope-hint { margin: -4px 0 10px !important; }
 .thumb.own .tclip { outline: 2px dashed var(--accent); outline-offset: 2px; }
+
+/* Footer */
+.foot { max-width: 1240px; margin: 0 auto; padding: 8px 24px 28px; color: var(--ink-2); font-size: 12px; }
+.foot a { color: inherit; }
+.foot a:hover { color: var(--ink); }

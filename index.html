@@ -9,6 +9,9 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <meta name="theme-color" content="#d2551f">
+  <!-- Filled in by the deploy job (scripts/stamp.js); empty in the repo. -->
+  <meta name="pared-commit" content="">
+  <meta name="pared-deployed" content="">
   <link rel="stylesheet" href="style.css">
   <script type="module" src="app.js"></script>
 </head>
@@ -153,5 +156,9 @@
       </aside>
     </section>
   </main>
+  <footer class="foot">
+    <a href="https://github.com/paredpdf/paredpdf.github.io" data-i18n="foot.source">Source code</a>
+    <span id="version" hidden> · <a id="versionLink"></a></span>
+  </footer>
 </body>
 </html>

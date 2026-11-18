@@ -19,6 +19,8 @@ python3 -m http.server 8765   # from the repo root
 
 It has to be served over HTTP, because ES modules and workers don't load from `file://`. There's no build step. Deploy the folder as-is to any static host (GitHub Pages, Cloudflare Pages, Vercel).
 
+The live site is deployed by GitHub Actions once the tests pass (Settings → Pages → Source must be "GitHub Actions"). The deploy job runs `scripts/stamp.js` to write the commit and deploy time into `index.html`, and the footer shows them with a link to the commit. A copy served straight from the repo shows no version.
+
 ## Tests
 
 ```sh

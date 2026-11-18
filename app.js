@@ -28,7 +28,7 @@ const el = Object.fromEntries([
   'detectCard', 'confidence', 'detectText', 'groupSel',
   'boxCard', 'scopeAll', 'scopePage', 'scopeHint', 'orientP', 'orientL', 'chips', 'rSize', 'rMm', 'rRatio',
   'exportCard', 'memWarn', 'compress', 'ppiField', 'ppi', 'compressHint', 'estimate', 'download', 'saveProgress', 'saveBar', 'saveText',
-  'reset', 'error', 'lang',
+  'reset', 'error', 'lang', 'version', 'versionLink',
 ].map((id) => [id, $(id)]));
 
 let state = null;
@@ -961,6 +961,7 @@ openShared();
 function storedLang() { try { return localStorage.getItem('pared-lang'); } catch { return null; } }
 
 setLang(pickLang({ search: location.search, saved: storedLang(), languages: navigator.languages || [navigator.language || ''] }));
+showVersion();
 showCompressHint();
 showEstimate();
 
@@ -975,6 +976,7 @@ el.lang.lang = lang() === 'he' ? 'en' : 'he';
 
 // Redraw every piece of text the app writes itself, in the current language.
 function rerender() {
+  showVersion();
   showCompressHint();
   showEstimate();
   if (!state) return;
@@ -984,6 +986,19 @@ function rerender() {
   updatePager();
   updateCurrentInclusion();
   refreshPanel();
+}
+
+// Which deploy this is, from the meta tags the deploy job fills in. A copy
+// served straight from the repo has them empty and shows no version.
+function showVersion() {
+  const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.content || '';
+  const commit = meta('pared-commit'), deployed = new Date(meta('pared-deployed'));
+  el.version.hidden = !commit || Number.isNaN(deployed.getTime());
+  if (el.version.hidden) return;
+  const when = new Intl.DateTimeFormat(lang() === 'he' ? 'he-IL' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(deployed);
+  el.versionLink.textContent = t('foot.version', { commit: ltr(commit.slice(0, 7)), when });
+  el.versionLink.href = `https://github.com/paredpdf/paredpdf.github.io/commit/${commit}`;
+  el.versionLink.title = `${commit}\n${deployed.toISOString()}`;
 }
 
 function showFileMeta() {

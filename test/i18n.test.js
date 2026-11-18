@@ -40,7 +40,8 @@ test('the ppi options in the page match the app presets', () => {
 
 test('functions render without leaving placeholders', () => {
   const params = { page: 3, n: 7, k: 2, p: 4, pos: 2, deg: 90, size: '1 MB', sheet: 'A4', shape: '9:16', label: '9:16',
-    orient: 'x', part: '7-3', a: 7, b: 3, done: 1, total: 2, name: 'f.pdf', before: '2 MB', pct: 50, msg: 'boom' };
+    orient: 'x', part: '7-3', a: 7, b: 3, done: 1, total: 2, name: 'f.pdf', before: '2 MB', pct: 50, msg: 'boom',
+    commit: 'abc1234', when: '18 Nov 2026' };
   for (const code of LANGS) {
     for (const [k, v] of Object.entries(strings(code))) {
       if (typeof v !== 'function') continue;

@@ -116,6 +116,9 @@ const STRINGS = {
     'err.encrypted': 'This PDF is encrypted, so it can’t be rewritten here.',
     'err.write': ({ msg }) => `Couldn't write the PDF: ${msg}`,
     'err.engine': 'The PDF engine stopped unexpectedly. Try again, or export fewer pages at a time.',
+
+    'foot.source': 'Source code',
+    'foot.version': ({ commit, when }) => `Version ${commit}, deployed ${when}`,
   },
 
   he: {
@@ -227,6 +230,9 @@ const STRINGS = {
     'err.encrypted': 'קובץ ה־PDF הזה מוצפן, ולכן אי אפשר לשכתב אותו כאן.',
     'err.write': ({ msg }) => `לא הצלחתי לכתוב את קובץ ה־PDF: ${msg}`,
     'err.engine': 'מנוע ה־PDF נעצר באופן לא צפוי. נסו שוב, או ייצאו פחות עמודים בכל פעם.',
+
+    'foot.source': 'קוד המקור',
+    'foot.version': ({ commit, when }) => `גרסה ${commit}, עלתה ב־${when}`,
   },
 };
 
