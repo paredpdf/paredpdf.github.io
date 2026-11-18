@@ -11,6 +11,10 @@ const SKIP_FILTERS = new Set(['JBIG2Decode', 'CCITTFaxDecode']);
  * @param opts   { boxes: (number[4]|null)[] per source page (PDF user space),
  *                 keep: 0-based source page indices to keep, in order,
  *                 rotate: degrees clockwise to add, per source page (multiples of 90),
+ *                 stamps: [{ page: 0-based source page, rect: [x0, y0, x1, y1] in PDF
+ *                   user space, png: Uint8Array }] images (signatures) drawn on
+ *                   top of the page, upright as the page is shown before any
+ *                   added rotation,
  *                 compress: null | { ppi, quality },
  *                 encodeJpeg?: async (rgb, w, h, quality) => Uint8Array }
  *                 (optional RGB encoder; the browser's uses 4:2:0 chroma
@@ -96,6 +100,8 @@ function prepare(mupdf, bytes, opts, progress) {
     for (const k of ['BleedBox', 'TrimBox', 'ArtBox']) page.delete(k);
   });
 
+  if (opts.stamps?.length) addStamps(mupdf, doc, opts.stamps, n);
+
   // Extra clockwise rotation per source page, added to any /Rotate it has.
   opts.rotate?.forEach((deg, i) => {
     if (!deg || i >= n) return;
@@ -150,6 +156,66 @@ export function inspectPdf(mupdf, bytes) {
     doc.destroy?.();
   }
 }
+
+/* ---------- stamps (signatures) ---------- */
+
+function addStamps(mupdf, doc, stamps, n) {
+  const byPage = new Map();
+  for (const st of stamps) {
+    if (!(st.page >= 0 && st.page < n)) throw new Error(`No page ${st.page + 1} to sign`);
+    byPage.set(st.page, [...(byPage.get(st.page) ?? []), st]);
+  }
+  for (const [i, list] of byPage) {
+    const page = doc.findPage(i);
+    const rot = page.getInheritable('Rotate');
+    const deg = ((((rot.isNumber() ? rot.asNumber() : 0) % 360) + 360) % 360);
+
+    // The page gets its own Resources and XObject dictionaries, so pages
+    // that share them (often via the page tree) aren't changed as well.
+    const res = doc.newDictionary();
+    const inh = page.getInheritable('Resources');
+    if (inh.isDictionary()) inh.forEach((v, k) => res.put(k, v));
+    const xo = doc.newDictionary();
+    const oldXo = res.get('XObject');
+    if (oldXo.isDictionary()) oldXo.forEach((v, k) => xo.put(k, v));
+
+    let ops = 'Q\n';
+    list.forEach((st, k) => {
+      let name = `PaSig${k}`;
+      while (xo.get(name).isStream()) name += 'x';
+      const image = new mupdf.Image(st.png);
+      xo.put(name, doc.addImage(image));
+      image.destroy?.();
+      ops += `q ${uprightMatrix(st.rect, deg).map(num).join(' ')} cm /${name} Do Q\n`;
+    });
+    res.put('XObject', xo);
+    page.put('Resources', res);
+
+    // Wrap the existing content in q ... Q so whatever graphics state it
+    // leaves behind can't move or clip the stamps drawn after it.
+    const contents = doc.newArray();
+    contents.push(doc.addStream('q\n', {}));
+    const old = page.get('Contents');
+    if (old.isArray()) old.forEach((v) => contents.push(v));
+    else if (old.isStream()) contents.push(old);
+    contents.push(doc.addStream(ops, {}));
+    page.put('Contents', contents);
+  }
+}
+
+// Matrix that draws an image's unit square into rect so it looks upright on a
+// page displayed with /Rotate deg (clockwise).
+export function uprightMatrix([x0, y0, x1, y1], deg) {
+  const W = x1 - x0, H = y1 - y0;
+  switch (deg) {
+    case 90: return [0, H, -W, 0, x1, y0];
+    case 180: return [-W, 0, 0, -H, x1, y1];
+    case 270: return [0, -H, W, 0, x0, y1];
+    default: return [W, 0, 0, H, x0, y0];
+  }
+}
+
+const num = (v) => String(Math.round(v * 1000) / 1000);
 
 /* ---------- image usage: how large is each image drawn? ---------- */
 
