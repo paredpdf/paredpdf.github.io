@@ -28,7 +28,7 @@ const el = Object.fromEntries([
   'fname', 'fmeta', 'progress', 'progressBar', 'progressText',
   'detectCard', 'confidence', 'detectText', 'groupSel',
   'boxCard', 'scopeAll', 'scopePage', 'scopeHint', 'orientP', 'orientL', 'chips', 'rSize', 'rMm', 'rRatio',
-  'exportCard', 'memWarn', 'sigWarn', 'strip', 'stripHint', 'compress', 'ppiField', 'ppi', 'compressHint', 'estimate', 'download', 'saveProgress', 'saveBar', 'saveText',
+  'exportCard', 'memWarn', 'sigWarn', 'strip', 'stripHint', 'pwCard', 'pwText', 'pw', 'keepPw', 'keepPwRow', 'compress', 'ppiField', 'ppi', 'compressHint', 'estimate', 'download', 'saveProgress', 'saveBar', 'saveText',
   'reset', 'error', 'lang', 'version', 'versionLink', 'about',
   'signCard', 'addSign', 'signHint', 'signDlg', 'tabDraw', 'tabType', 'tabUpload', 'paneDraw', 'paneType', 'paneUpload', 'pad', 'sigFile', 'sigPick', 'sigImg',
   'sigName', 'fontChips',
@@ -75,14 +75,14 @@ function resetAll() {
   el.about.hidden = false;
 }
 
-async function open(file) {
+async function open(file, password = null) {
   resetAll();
   const my = session;
   el.drop.hidden = true;
   el.about.hidden = true;
   el.work.hidden = false;
   el.reset.hidden = false;
-  for (const k of ['detectCard', 'boxCard', 'signCard', 'exportCard', 'error', 'saveProgress']) el[k].hidden = true;
+  for (const k of ['detectCard', 'boxCard', 'signCard', 'exportCard', 'error', 'saveProgress', 'pwCard']) el[k].hidden = true;
   el.fname.textContent = file.name;
   el.fmeta.textContent = t('file.reading', { size: fmtBytes(file.size) });
   el.saveText.textContent = '';
@@ -91,9 +91,9 @@ async function open(file) {
     // pdf.js takes ownership of this buffer (it moves to its worker). The
     // export re-reads the file instead of keeping a second copy in memory.
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const pdf = await pdfjsLib.getDocument({ data: bytes, isEvalSupported: false, ...PDFJS_ASSETS }).promise;
+    const pdf = await pdfjsLib.getDocument({ data: bytes, password: password ?? undefined, isEvalSupported: false, ...PDFJS_ASSETS }).promise;
     if (my !== session) return;
-    state = { file, pdf, n: pdf.numPages, page: 1, groups: [], groupOf: [], selected: null, lastToggled: null, thumbs: [], order: [] };
+    state = { file, password, pdf, n: pdf.numPages, page: 1, groups: [], groupOf: [], selected: null, lastToggled: null, thumbs: [], order: [] };
     state.order = Array.from({ length: state.n }, (_, i) => i + 1);
     state.rot = new Int16Array(state.n + 1); // extra clockwise rotation per page
     state.override = new Map(); // page -> its own crop (see cropOf)
@@ -110,6 +110,8 @@ async function open(file) {
       deviceMemory: navigator.deviceMemory, coarsePointer: matchMedia('(pointer: coarse)').matches,
     });
     el.memWarn.hidden = !state.large;
+    el.keepPwRow.hidden = !password;
+    el.keepPw.checked = true;
     buildThumbs();
     updateSelectionUI();
     showPage(1);
@@ -117,9 +119,30 @@ async function open(file) {
   } catch (err) {
     if (my !== session) return;
     console.error(err);
-    showError(err?.name === 'PasswordException' ? t('err.password') : t('err.read', { msg: err?.message || err }));
+    if (err?.name === 'PasswordException') askPassword(file, err.code === pdfjsLib.PasswordResponses.INCORRECT_PASSWORD);
+    else showError(t('err.read', { msg: err?.message || err }));
   }
 }
+
+/* ---------- password-protected PDFs ---------- */
+
+// The password stays in this page's memory: pdf.js gets it for the preview,
+// and the workers for export. It is never stored.
+let pwFor = null, pwWrong = false;
+function askPassword(file, wrong) {
+  pwFor = file;
+  pwWrong = wrong;
+  el.fmeta.textContent = fmtBytes(file.size);
+  el.pwCard.hidden = false;
+  showPwText();
+  el.pw.value = '';
+  el.pw.focus();
+}
+function showPwText() { el.pwText.textContent = t(pwWrong ? 'pw.wrong' : 'pw.need'); }
+el.pwCard.addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (pwFor && el.pw.value) open(pwFor, el.pw.value);
+});
 
 /* ---------- analysis ---------- */
 
@@ -1010,7 +1033,7 @@ async function runEstimate(key, keep) {
     // Crop boxes don't change the size noticeably; the page subset does, so
     // only that is sent.
     const sizes = await oneShot('estimate', data, {
-      keep, presets: PRESETS.map((ppi) => ({ ppi, quality: QUALITY[ppi] ?? 78 })),
+      keep, password: state.password, removePassword: !el.keepPw.checked, presets: PRESETS.map((ppi) => ({ ppi, quality: QUALITY[ppi] ?? 78 })),
     }, (x) => { w = x; estimateWorker = x; });
     if (estimateWorker !== w || my !== session) return;
     estimate = { key, sizes };
@@ -1073,7 +1096,7 @@ async function checkSignatures(my) {
   const data = new Uint8Array(await state.file.arrayBuffer());
   if (my !== session) return;
   try {
-    const { signed } = await oneShot('inspect', data, {});
+    const { signed } = await oneShot('inspect', data, { password: state.password });
     if (my !== session) return;
     state.signed = signed;
     showSigWarn();
@@ -1189,7 +1212,8 @@ async function exportPdf() {
       });
       // Transferred, not copied: the worker owns the only copy from here on.
       worker.postMessage({ id, bytes: data, opts: { boxes, keep: keepList(),
-        rotate: Array.from(state.rot.subarray(1)), compress, stamps, stripMetadata: el.strip.checked } }, [data.buffer]);
+        rotate: Array.from(state.rot.subarray(1)), compress, stamps, stripMetadata: el.strip.checked,
+        password: state.password, removePassword: !el.keepPw.checked } }, [data.buffer]);
     });
     retireWorker();
     if (my !== session) return;
@@ -1276,6 +1300,7 @@ el.lang.addEventListener('change', () => {
 // Redraw every piece of text the app writes itself, in the current language.
 function rerender() {
   showVersion();
+  if (!el.pwCard.hidden) showPwText();
   if (state) showStripHint();
   if (state) renderSigns();
   showSigWarn();

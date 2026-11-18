@@ -64,3 +64,10 @@ test('working screen is accessible in dark mode', async ({ page }) => {
   await page.click('#addSign');
   await audit(page, 'dialog/dark');
 });
+
+test('password prompt is accessible', async ({ page }) => {
+  await page.goto('/?lang=he');
+  await page.setInputFiles('#file', path.join(FIXTURES, 'locked.pdf'));
+  await expect(page.locator('#pwCard')).toBeVisible();
+  await audit(page, 'password');
+});

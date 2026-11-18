@@ -761,3 +761,53 @@ test('describes hidden details in Hebrew', async ({ page }) => {
   await load(page, path.join(FIXTURES, 'with-author.pdf'), '/?lang=he');
   await expect(page.locator('#stripHint')).toContainText('בקובץ הזה יש: מחבר ״\u2068Ada Example\u2069״');
 });
+
+/* ---------- password-protected PDFs ---------- */
+
+async function unlock(page, url = '/') {
+  await page.goto(url);
+  await page.setInputFiles('#file', path.join(FIXTURES, 'locked.pdf'));
+  await expect(page.locator('#pwCard')).toBeVisible();
+  await expect(page.locator('#pw')).toBeFocused();
+}
+
+test('asks for the password, explains a wrong one, then opens', async ({ page }) => {
+  await unlock(page);
+  await expect(page.locator('#pwText')).toContainText('protected with a password');
+  await page.fill('#pw', 'nope');
+  await page.press('#pw', 'Enter');
+  await expect(page.locator('#pwText')).toHaveText("That password didn't work. Try again.");
+  await page.fill('#pw', 'open');
+  await page.click('#pwCard button[type="submit"]');
+  await expect(page.locator('#exportCard')).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('#pwCard')).toBeHidden();
+  await expect(page.locator('#confidence')).toHaveText('Exact');
+  await expect(page.locator('#estimate')).toContainText('≈', { timeout: 30_000 });
+  // Exported with the same protection by default.
+  await expect(page.locator('#keepPw')).toBeChecked();
+  const out = new mupdf.PDFDocument(await download(page));
+  expect(out.needsPassword()).toBe(true);
+  expect(out.authenticatePassword('open')).toBeTruthy();
+});
+
+test('can export a protected PDF without its password', async ({ page }) => {
+  await unlock(page);
+  await page.fill('#pw', 'open');
+  await page.press('#pw', 'Enter');
+  await expect(page.locator('#exportCard')).toBeVisible({ timeout: 60_000 });
+  await page.uncheck('#keepPw');
+  const out = new mupdf.PDFDocument(await download(page));
+  expect(out.needsPassword()).toBe(false);
+  expect(out.countPages()).toBe(3);
+});
+
+test('an ordinary PDF has no password option', async ({ page }) => {
+  await load(page);
+  await expect(page.locator('#keepPwRow')).toBeHidden();
+  await expect(page.locator('#pwCard')).toBeHidden();
+});
+
+test('asks for the password in Arabic', async ({ page }) => {
+  await unlock(page, '/?lang=ar');
+  await expect(page.locator('#pwText')).toContainText('محمي بكلمة مرور');
+});

@@ -69,6 +69,8 @@ export default function globalSetup() {
   fs.writeFileSync(path.join(FIXTURES, 'long.pdf'), letterboxed(120));
   fs.writeFileSync(path.join(FIXTURES, 'photos.pdf'), photos());
   fs.writeFileSync(path.join(FIXTURES, 'signed.pdf'), signedPdf(1));
+  fs.writeFileSync(path.join(FIXTURES, 'locked.pdf'), new mupdf.PDFDocument(letterboxed(3))
+    .saveToBuffer('encrypt=aes-256,user-password=open,owner-password=boss').asUint8Array().slice());
   {
     // The usual letterboxed deck, with an author, the program and dates.
     const doc = new mupdf.PDFDocument(letterboxed(2));

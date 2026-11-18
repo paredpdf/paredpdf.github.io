@@ -107,6 +107,15 @@
           <div class="meta" id="fmeta"></div>
         </div>
 
+        <form class="card" id="pwCard" hidden>
+          <div class="card-h"><span data-i18n="pw.title">Password</span></div>
+          <p id="pwText"></p>
+          <div class="pwrow">
+            <input type="password" class="signame" id="pw" autocomplete="current-password" data-i18n-aria-label="pw.title" aria-label="Password">
+            <button class="btn primary" type="submit" data-i18n="pw.open">Open</button>
+          </div>
+        </form>
+
         <div class="progress" id="progress" hidden>
           <div class="bar"><span id="progressBar"></span></div>
           <div class="ptext" id="progressText"></div>
@@ -168,6 +177,7 @@
             </select>
           </label>
           <p class="hint" id="compressHint">Shrinks photos to the chosen resolution and saves them as JPEG. Text and vector graphics aren't touched.</p>
+          <label class="check" id="keepPwRow" hidden><input type="checkbox" id="keepPw" checked> <span data-i18n="export.keepPw">Keep the password on the exported file</span></label>
           <label class="check"><input type="checkbox" id="strip" checked> <span data-i18n="export.strip">Remove hidden details</span></label>
           <p class="hint" id="stripHint"></p>
           <p class="estimate" id="estimate" hidden></p>

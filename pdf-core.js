@@ -11,6 +11,9 @@ const SKIP_FILTERS = new Set(['JBIG2Decode', 'CCITTFaxDecode']);
  * @param opts   { boxes: (number[4]|null)[] per source page (PDF user space),
  *                 keep: 0-based source page indices to keep, in order,
  *                 rotate: degrees clockwise to add, per source page (multiples of 90),
+ *                 password: the PDF's password, if it has one,
+ *                 removePassword: save without encryption (otherwise a protected
+ *                   PDF keeps its original passwords and permissions),
  *                 stripMetadata: remove author, software, dates, XMP metadata, editing
  *                   programs' private data, and photo metadata inside JPEGs (camera,
  *                   time, location); the document title is kept,
@@ -31,7 +34,7 @@ export async function processPdf(mupdf, bytes, opts, progress = () => {}) {
   const stats = opts.compress ? await compressImages(mupdf, doc, opts.compress, opts.encodeJpeg, progress) : null;
 
   progress({ phase: 'save' });
-  const result = saveBytes(doc);
+  const result = saveBytes(doc, opts.removePassword);
   doc.destroy?.();
   return { bytes: result, stats };
 }
@@ -79,7 +82,7 @@ export async function estimateSizes(mupdf, bytes, opts, progress = () => {}) {
       savings.push(saving);
     }
     progress({ phase: 'save' });
-    const none = saveBytes(doc).length;
+    const none = saveBytes(doc, opts.removePassword).length;
     return { none, presets: savings.map((s) => Math.max(0, Math.round(none - s))) };
   } finally {
     doc.destroy?.();
@@ -91,7 +94,7 @@ const ESTIMATE_SAMPLES = 3;
 // Open the PDF and apply crop boxes, rotation and the page subset/order.
 function prepare(mupdf, bytes, opts, progress) {
   progress({ phase: 'open' });
-  const doc = new mupdf.PDFDocument(bytes);
+  const doc = openDoc(mupdf, bytes, opts.password);
   bytes = null; // mupdf has its own copy; let the caller's buffer be freed
   const n = doc.countPages();
 
@@ -124,8 +127,20 @@ function prepare(mupdf, bytes, opts, progress) {
   return doc;
 }
 
-function saveBytes(doc) {
-  const out = doc.saveToBuffer('garbage=deduplicate,compress=yes');
+// Open a PDF, unlocking it with the password if it needs one.
+function openDoc(mupdf, bytes, password) {
+  const doc = new mupdf.PDFDocument(bytes);
+  if (doc.needsPassword() && !doc.authenticatePassword(password ?? '')) {
+    doc.destroy?.();
+    throw Object.assign(new Error(password ? 'Wrong password' : 'This PDF needs a password'), { code: 'password' });
+  }
+  return doc;
+}
+
+// A protected PDF keeps its encryption (original passwords and permissions)
+// unless removePassword.
+function saveBytes(doc, removePassword = false) {
+  const out = doc.saveToBuffer(`garbage=deduplicate,compress=yes${removePassword ? ',decrypt' : ''}`);
   const result = out.asUint8Array().slice();
   out.destroy?.();
   return result;
@@ -136,8 +151,8 @@ function saveBytes(doc) {
  * signature fields are signed: a digital signature covers the exact bytes of
  * the file, so any export, which rewrites the file, breaks it.
  */
-export function inspectPdf(mupdf, bytes) {
-  const doc = new mupdf.PDFDocument(bytes);
+export function inspectPdf(mupdf, bytes, password) {
+  const doc = openDoc(mupdf, bytes, password);
   try {
     let signed = 0;
     const seen = new Set();

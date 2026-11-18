@@ -26,14 +26,14 @@ self.onmessage = async (e) => {
     if (kind === 'estimate' || kind === 'inspect') {
       const result = kind === 'estimate'
         ? await estimateSizes(mupdf, take(e.data), full, progress)
-        : inspectPdf(mupdf, take(e.data));
+        : inspectPdf(mupdf, take(e.data), opts.password);
       self.postMessage({ type: 'done', id, result });
       return;
     }
     const r = await processPdf(mupdf, take(e.data), full, progress);
     self.postMessage({ type: 'done', id, bytes: r.bytes, stats: r.stats }, [r.bytes.buffer]);
   } catch (err) {
-    self.postMessage({ type: 'error', id, message: String(err?.message || err), memory: isMemoryError(err) });
+    self.postMessage({ type: 'error', id, message: String(err?.message || err), memory: isMemoryError(err), code: err?.code });
   }
 };
 
