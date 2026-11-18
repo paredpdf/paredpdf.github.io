@@ -29,7 +29,7 @@ const el = Object.fromEntries([
   'detectCard', 'confidence', 'detectText', 'groupSel',
   'boxCard', 'scopeAll', 'scopePage', 'scopeHint', 'orientP', 'orientL', 'chips', 'rSize', 'rMm', 'rRatio',
   'exportCard', 'memWarn', 'sigWarn', 'compress', 'ppiField', 'ppi', 'compressHint', 'estimate', 'download', 'saveProgress', 'saveBar', 'saveText',
-  'reset', 'error', 'lang', 'version', 'versionLink',
+  'reset', 'error', 'lang', 'version', 'versionLink', 'about',
   'signCard', 'addSign', 'signHint', 'signDlg', 'tabDraw', 'tabType', 'tabUpload', 'paneDraw', 'paneType', 'paneUpload', 'pad', 'sigFile', 'sigPick', 'sigImg',
   'sigName', 'fontChips',
   'sigErr', 'sigClear', 'sigCancel', 'sigUse',
@@ -72,12 +72,14 @@ function resetAll() {
   el.work.hidden = true;
   el.reset.hidden = true;
   el.drop.hidden = false;
+  el.about.hidden = false;
 }
 
 async function open(file) {
   resetAll();
   const my = session;
   el.drop.hidden = true;
+  el.about.hidden = true;
   el.work.hidden = false;
   el.reset.hidden = false;
   for (const k of ['detectCard', 'boxCard', 'signCard', 'exportCard', 'error', 'saveProgress']) el[k].hidden = true;

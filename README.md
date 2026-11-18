@@ -11,6 +11,13 @@ The interface is in English, Hebrew, Arabic and Spanish.
 
 Everything runs in the browser: the PDF is never uploaded.
 
+**Try it:** https://paredpdf.github.io/
+
+<p>
+  <img src="docs/screenshot-desktop.png" alt="Pared with a letterboxed slide detected and cropped, and a typed signature placed on the page" width="640">
+  <img src="docs/screenshot-phone-he.png" alt="Pared's start screen on a phone, in Hebrew" width="180">
+</p>
+
 ## Run locally
 
 ```sh
