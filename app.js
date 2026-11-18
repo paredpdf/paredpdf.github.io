@@ -6,6 +6,7 @@ import {
 import { parseRange, formatRange } from './pages.js';
 import { isLargeForDevice, isMemoryError } from './limits.js';
 import { t, ltr, isRtl, lang, locale, setLang, pickLang } from './i18n.js';
+import { INKS, createPad, imageToSignature, signaturePng, signaturePreview } from './sign.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdfjs/pdf.worker.min.mjs', import.meta.url).href;
 const PDFJS_ASSETS = {
@@ -29,6 +30,8 @@ const el = Object.fromEntries([
   'boxCard', 'scopeAll', 'scopePage', 'scopeHint', 'orientP', 'orientL', 'chips', 'rSize', 'rMm', 'rRatio',
   'exportCard', 'memWarn', 'sigWarn', 'compress', 'ppiField', 'ppi', 'compressHint', 'estimate', 'download', 'saveProgress', 'saveBar', 'saveText',
   'reset', 'error', 'lang', 'version', 'versionLink',
+  'signCard', 'addSign', 'signHint', 'signDlg', 'tabDraw', 'tabUpload', 'paneDraw', 'paneUpload', 'pad', 'sigFile', 'sigPick', 'sigImg',
+  'sigErr', 'sigClear', 'sigCancel', 'sigUse',
 ].map((id) => [id, $(id)]));
 
 let state = null;
@@ -76,7 +79,7 @@ async function open(file) {
   el.drop.hidden = true;
   el.work.hidden = false;
   el.reset.hidden = false;
-  for (const k of ['detectCard', 'boxCard', 'exportCard', 'error', 'saveProgress']) el[k].hidden = true;
+  for (const k of ['detectCard', 'boxCard', 'signCard', 'exportCard', 'error', 'saveProgress']) el[k].hidden = true;
   el.fname.textContent = file.name;
   el.fmeta.textContent = t('file.reading', { size: fmtBytes(file.size) });
   el.saveText.textContent = '';
@@ -91,6 +94,7 @@ async function open(file) {
     state.order = Array.from({ length: state.n }, (_, i) => i + 1);
     state.rot = new Int16Array(state.n + 1); // extra clockwise rotation per page
     state.override = new Map(); // page -> its own crop (see cropOf)
+    state.signs = []; // { page, sig, box } signatures placed on pages
     state.selected = new Uint8Array(state.n + 1).fill(1);
     await collectGroups(my);
     if (my !== session) return;
@@ -170,6 +174,7 @@ async function analyse(my) {
   canvas.width = canvas.height = 0;
   el.progress.hidden = true;
   el.exportCard.hidden = false;
+  el.signCard.hidden = false;
   refreshPanel();
   warmWorker();
   scheduleEstimate(0);
@@ -326,7 +331,7 @@ const stepPage = (d) => showPage(state.order[state.order.indexOf(state.page) + d
 el.showContent.addEventListener('change', placeOverlay);
 el.includePage.addEventListener('change', () => { setSelected(state.page, el.includePage.checked); });
 document.addEventListener('keydown', (e) => {
-  if (!state || el.work.hidden || e.target.closest('input, button, select')) return;
+  if (!state || el.work.hidden || el.signDlg.open || e.target.closest('input, button, select, .sig')) return;
   // Pages run right to left in Hebrew, so the left arrow goes forward there.
   const fwd = isRtl() ? 'ArrowLeft' : 'ArrowRight', back = isRtl() ? 'ArrowRight' : 'ArrowLeft';
   if (e.key === back) stepPage(-1);
@@ -354,6 +359,7 @@ async function showPage(n) {
   el.stage.style.width = `${cssW}px`;
   el.stage.style.height = `${cssH}px`;
   placeOverlay();
+  renderSigns();
   refreshPanel(); // the new page may have its own crop
 
   const my = session;
@@ -710,6 +716,212 @@ function updateCurrentInclusion() {
   el.stage.classList.toggle('excluded', !on);
 }
 
+/* ---------- signatures ---------- */
+
+let pad = null, dlgMode = 'draw', ink = 'black', uploaded = null, uploadedBlob = null, activeSign = null;
+
+el.addSign.addEventListener('click', openSignDialog);
+
+function openSignDialog() {
+  el.signDlg.showModal();
+  pad ??= createPad(el.pad, { onChange: updateSignButtons });
+  pad.setColor(INKS[ink]);
+  setDlgMode(dlgMode);
+}
+
+function setDlgMode(mode) {
+  dlgMode = mode;
+  el.tabDraw.setAttribute('aria-pressed', String(mode === 'draw'));
+  el.tabUpload.setAttribute('aria-pressed', String(mode === 'upload'));
+  el.paneDraw.hidden = mode !== 'draw';
+  el.paneUpload.hidden = mode !== 'upload';
+  el.sigErr.hidden = true;
+  if (mode === 'draw') pad.redraw(); // the canvas has its size only once shown
+  updateSignButtons();
+}
+
+function updateSignButtons() {
+  const empty = dlgMode === 'draw' ? pad.isEmpty() : !uploaded;
+  el.sigUse.disabled = empty;
+  el.sigClear.disabled = empty;
+}
+
+el.tabDraw.addEventListener('click', () => setDlgMode('draw'));
+el.tabUpload.addEventListener('click', () => setDlgMode('upload'));
+for (const sw of el.signDlg.querySelectorAll('.swatch')) {
+  sw.addEventListener('click', async () => {
+    ink = sw.dataset.ink;
+    for (const o of el.signDlg.querySelectorAll('.swatch')) o.setAttribute('aria-pressed', String(o === sw));
+    pad.setColor(INKS[ink]);
+    if (uploadedBlob) await useImage(uploadedBlob); // recolour the photo's ink
+  });
+}
+el.sigPick.addEventListener('click', () => el.sigFile.click());
+el.sigImg.addEventListener('click', () => el.sigFile.click());
+el.sigFile.addEventListener('change', () => { const f = el.sigFile.files?.[0]; if (f) useImage(f); el.sigFile.value = ''; });
+
+async function useImage(blob) {
+  el.sigErr.hidden = true;
+  try {
+    const sig = await imageToSignature(blob, INKS[ink]);
+    if (!sig) throw new Error('blank');
+    uploaded = sig;
+    uploadedBlob = blob;
+    el.sigImg.src = sig.url;
+    el.sigImg.hidden = false;
+    el.sigPick.hidden = true;
+  } catch (err) {
+    console.warn(err);
+    el.sigErr.textContent = t('sign.badImage');
+    el.sigErr.hidden = false;
+  }
+  updateSignButtons();
+}
+
+el.sigClear.addEventListener('click', () => {
+  if (dlgMode === 'draw') pad.clear();
+  else { uploaded = uploadedBlob = null; el.sigImg.hidden = true; el.sigPick.hidden = false; updateSignButtons(); }
+});
+el.sigCancel.addEventListener('click', () => el.signDlg.close());
+el.sigUse.addEventListener('click', () => {
+  const sig = dlgMode === 'draw' ? pad.toSignature() : uploaded;
+  if (!sig) return;
+  el.signDlg.close();
+  placeSignature(sig);
+});
+
+// Put a new signature in the middle of the current page's crop area, about a
+// third of its width, keeping the signature's shape.
+function placeSignature(sig) {
+  const crop = cropOf(state.page).box;
+  const sa = stageAspect();
+  let w = (crop.x1 - crop.x0) * 0.35, h = (w * sa) / sig.aspect;
+  const maxH = (crop.y1 - crop.y0) * 0.25;
+  if (h > maxH) { w *= maxH / h; h = maxH; }
+  const cx = (crop.x0 + crop.x1) / 2, cy = (crop.y0 + crop.y1) / 2;
+  const item = { page: state.page, sig, box: { x0: cx - w / 2, y0: cy - h / 2, x1: cx + w / 2, y1: cy + h / 2 } };
+  state.signs.push(item);
+  renderSigns();
+  signNode(item)?.focus();
+}
+
+// Width / height of the preview, so boxes in 0..1 units keep a shape on screen.
+function stageAspect() { const g = curGroup(); return g.W / g.H; }
+
+const signNodes = new Map(); // item -> element on the stage
+
+function signNode(item) { return signNodes.get(item); }
+
+function renderSigns() {
+  for (const node of signNodes.values()) node.remove();
+  signNodes.clear();
+  if (!state) return;
+  for (const item of state.signs.filter((x) => x.page === state.page)) {
+    const node = document.createElement('div');
+    node.className = 'sig';
+    node.tabIndex = 0;
+    node.setAttribute('role', 'img');
+    node.setAttribute('aria-label', t('sign.itemAria'));
+    const img = document.createElement('img');
+    img.alt = '';
+    (item.preview ??= signaturePreview(item.sig)).then((url) => { img.src = url; });
+    const del = Object.assign(document.createElement('button'), { type: 'button', className: 'sig-del', textContent: '×' });
+    del.setAttribute('aria-label', t('sign.remove'));
+    del.title = t('sign.remove');
+    const rs = document.createElement('div');
+    rs.className = 'sig-rs';
+    rs.title = t('sign.resize');
+    node.append(img, del, rs);
+    setRect(node, item.box);
+    node.item = item;
+    el.stage.append(node);
+    signNodes.set(item, node);
+  }
+  el.signHint.hidden = !state.signs.length;
+}
+
+function removeSign(item) {
+  state.signs = state.signs.filter((x) => x !== item);
+  renderSigns();
+}
+
+// Keep a signature inside its page's crop area, so it isn't cut off.
+function clampSign(item, b) {
+  const c = cropOf(item.page).box;
+  const w = Math.min(b.x1 - b.x0, c.x1 - c.x0), h = Math.min(b.y1 - b.y0, c.y1 - c.y0);
+  const x0 = Math.min(Math.max(b.x0, c.x0), c.x1 - w), y0 = Math.min(Math.max(b.y0, c.y0), c.y1 - h);
+  return { x0, y0, x1: x0 + w, y1: y0 + h };
+}
+
+let signDrag = null;
+el.stage.addEventListener('pointerdown', (e) => {
+  const node = e.target.closest('.sig');
+  if (!node || e.button > 0) return;
+  e.stopPropagation();
+  if (e.target.closest('.sig-del')) return;
+  e.preventDefault();
+  node.focus();
+  node.setPointerCapture(e.pointerId);
+  const r = el.stage.getBoundingClientRect();
+  signDrag = { node, item: node.item, id: e.pointerId, resize: !!e.target.closest('.sig-rs'),
+    sx: e.clientX, sy: e.clientY, w: r.width, h: r.height, start: { ...node.item.box } };
+});
+el.stage.addEventListener('pointermove', (e) => {
+  if (!signDrag || e.pointerId !== signDrag.id) return;
+  const d = signDrag, dx = (e.clientX - d.sx) / d.w, dy = (e.clientY - d.sy) / d.h, b = d.start;
+  let nb;
+  if (d.resize) {
+    // Corner drag: grow or shrink, keeping the signature's shape.
+    // At most as big as the crop area; clampSign then slides it back inside
+    // if it grew past an edge.
+    const aspect = ((b.x1 - b.x0) * d.w) / ((b.y1 - b.y0) * d.h);
+    const c = cropOf(d.item.page).box;
+    const maxW = Math.min(c.x1 - c.x0, ((c.y1 - c.y0) * d.h * aspect) / d.w);
+    const nw = Math.min(maxW, Math.max(0.03, b.x1 - b.x0 + dx));
+    nb = { x0: b.x0, y0: b.y0, x1: b.x0 + nw, y1: b.y0 + (nw * d.w) / aspect / d.h };
+  } else {
+    nb = { x0: b.x0 + dx, y0: b.y0 + dy, x1: b.x1 + dx, y1: b.y1 + dy };
+  }
+  d.item.box = clampSign(d.item, nb);
+  setRect(d.node, d.item.box);
+});
+const endSignDrag = (e) => { if (signDrag && e.pointerId === signDrag.id) signDrag = null; };
+el.stage.addEventListener('pointerup', endSignDrag);
+el.stage.addEventListener('pointercancel', endSignDrag);
+el.stage.addEventListener('click', (e) => {
+  const del = e.target.closest('.sig-del');
+  if (del) removeSign(del.closest('.sig').item);
+});
+el.stage.addEventListener('keydown', (e) => {
+  const node = e.target.closest('.sig');
+  if (!node || e.target !== node) return;
+  const item = node.item, b = item.box, step = e.shiftKey ? 0.05 : 0.005;
+  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); removeSign(item); return; }
+  const mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+  if (!mv) return;
+  e.preventDefault();
+  e.stopPropagation(); // not the page arrows
+  item.box = clampSign(item, { x0: b.x0 + mv[0], y0: b.y0 + mv[1], x1: b.x1 + mv[0], y1: b.y1 + mv[1] });
+  setRect(node, item.box);
+});
+
+// What the engine needs: each signature as a PNG sized for 300 ppi at its
+// size on the page, and its rectangle in PDF user space.
+async function signatureStamps() {
+  const stamps = [];
+  for (const item of state.signs) {
+    if (!state.selected[item.page]) continue;
+    const vp = (await state.pdf.getPage(item.page)).getViewport({ scale: 1 });
+    const b = item.box;
+    const [ax, ay] = vp.convertToPdfPoint(b.x0 * vp.width, b.y0 * vp.height);
+    const [bx, by] = vp.convertToPdfPoint(b.x1 * vp.width, b.y1 * vp.height);
+    const k = Math.min(300 / 72, 2400 / ((b.x1 - b.x0) * vp.width));
+    const png = await signaturePng(item.sig, (b.x1 - b.x0) * vp.width * k, (b.y1 - b.y0) * vp.height * k);
+    stamps.push({ page: item.page - 1, rect: [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)], png });
+  }
+  return stamps;
+}
+
 /* ---------- export (in a worker, via mupdf) ---------- */
 
 el.download.addEventListener('click', exportPdf);
@@ -899,6 +1111,7 @@ async function exportPdf() {
     }
     const ppi = Number(el.ppi.value);
     const compress = el.compress.checked ? { ppi, quality: QUALITY[ppi] ?? 78 } : null;
+    const stamps = await signatureStamps();
 
     say(t('export.loading'));
     await warmWorker();
@@ -921,7 +1134,7 @@ async function exportPdf() {
       });
       // Transferred, not copied: the worker owns the only copy from here on.
       worker.postMessage({ id, bytes: data, opts: { boxes, keep: keepList(),
-        rotate: Array.from(state.rot.subarray(1)), compress } }, [data.buffer]);
+        rotate: Array.from(state.rot.subarray(1)), compress, stamps } }, [data.buffer]);
     });
     retireWorker();
     if (my !== session) return;
@@ -1008,6 +1221,7 @@ el.lang.addEventListener('change', () => {
 // Redraw every piece of text the app writes itself, in the current language.
 function rerender() {
   showVersion();
+  if (state) renderSigns();
   showSigWarn();
   showCompressHint();
   showEstimate();

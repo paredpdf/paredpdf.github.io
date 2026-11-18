@@ -12,7 +12,7 @@ const SHARE_CACHE = 'pared-share';
 const NETWORK_TIMEOUT_MS = 4000;
 
 const APP_FILES = [
-  './', 'index.html', 'style.css', 'app.js', 'detect.js', 'pages.js', 'limits.js', 'i18n.js', 'pdf-core.js', 'export-worker.js',
+  './', 'index.html', 'style.css', 'app.js', 'detect.js', 'pages.js', 'limits.js', 'i18n.js', 'sign.js', 'pdf-core.js', 'export-worker.js',
   'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 const VENDOR_FILES = [

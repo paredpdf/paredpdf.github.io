@@ -137,6 +137,13 @@
           <p class="hint" data-i18n="box.dragHint">Drag the edges in the preview to fine-tune.</p>
         </div>
 
+        <div class="card" id="signCard" hidden>
+          <div class="card-h"><span data-i18n="sign.title">Sign</span></div>
+          <button class="btn wide" id="addSign" type="button" data-i18n="sign.add">Add a signature</button>
+          <p class="hint" id="signHint" data-i18n="sign.hint" hidden>Drag a signature to move it, and its corner to resize it. Arrow keys move the selected one, and Delete removes it.</p>
+          <p class="hint" data-i18n="sign.note">This adds a picture of your signature. It doesn't prove who signed.</p>
+        </div>
+
         <div class="card" id="exportCard" hidden>
           <div class="card-h"><span data-i18n="export.title">Export</span></div>
           <p class="warn" id="memWarn" hidden data-i18n="export.memWarn">This is a large file for a phone or tablet. If the export fails, export fewer pages at a time.</p>
@@ -162,6 +169,34 @@
       </aside>
     </section>
   </main>
+  <dialog class="dlg" id="signDlg" aria-labelledby="signDlgTitle">
+    <h2 id="signDlgTitle" data-i18n="sign.dlgTitle">Your signature</h2>
+    <div class="seg" role="group" data-i18n-aria-label="sign.howAria" aria-label="How to make it">
+      <button type="button" id="tabDraw" aria-pressed="true" data-i18n="sign.draw">Draw</button>
+      <button type="button" id="tabUpload" aria-pressed="false" data-i18n="sign.upload">Upload</button>
+    </div>
+    <div id="paneDraw">
+      <canvas class="pad" id="pad" data-i18n-aria-label="sign.padAria" aria-label="Signature pad"></canvas>
+      <p class="hint" data-i18n="sign.drawHint">Sign with your mouse, finger or pen.</p>
+    </div>
+    <div id="paneUpload" hidden>
+      <input type="file" id="sigFile" accept="image/*" hidden>
+      <div class="sigprev" id="sigPrev"><button type="button" class="btn" id="sigPick" data-i18n="sign.choose">Choose an image</button><img id="sigImg" alt="" hidden></div>
+      <p class="hint" data-i18n="sign.uploadHint">A photo or scan of your signature on white paper. The paper becomes transparent.</p>
+    </div>
+    <div class="inks" role="group" data-i18n-aria-label="sign.inkAria" aria-label="Ink colour">
+      <button type="button" class="swatch" data-ink="black" aria-pressed="true" data-i18n-aria-label="sign.black" data-i18n-title="sign.black" aria-label="Black" title="Black"></button>
+      <button type="button" class="swatch" data-ink="blue" aria-pressed="false" data-i18n-aria-label="sign.blue" data-i18n-title="sign.blue" aria-label="Blue" title="Blue"></button>
+    </div>
+    <p class="dlg-err" id="sigErr" hidden></p>
+    <div class="dlg-actions">
+      <button type="button" class="btn ghost" id="sigClear" data-i18n="sign.clear">Clear</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="sigCancel" data-i18n="sign.cancel">Cancel</button>
+      <button type="button" class="btn primary" id="sigUse" data-i18n="sign.place" disabled>Add to page</button>
+    </div>
+  </dialog>
+
   <footer class="foot">
     <a href="https://github.com/paredpdf/paredpdf.github.io" data-i18n="foot.source">Source code</a>
     <span id="version" hidden> · <a id="versionLink"></a></span>

@@ -4,6 +4,7 @@ Fixes PDFs exported at the wrong page size, such as a 9:16 portrait slide placed
 - detects the real page,
 - crops every page to it,
 - lets you choose which pages to keep, reorder and rotate them,
+- can add a drawn or photographed signature,
 - can compress the images.
 
 The interface is in English, Hebrew, Arabic and Spanish.
@@ -57,6 +58,7 @@ npm run test:e2e -- --project=desktop --project=firefox   # some of them
   - Saves with garbage collection, so skipped pages' images are actually removed.
   - **Existing signatures:** `inspectPdf` counts signed signature fields. Exporting rewrites the file, which breaks a digital signature, so the page warns first. pdf.js spots signature fields cheaply, and mupdf is only asked when there are some, since pdf.js can't tell signed from empty.
   - **Size estimate:** `estimateSizes` predicts the exported size at each resolution before you export. The uncompressed size is a real save, so it's exact. For each resolution it encodes the three largest images that would be shrunk and assumes the rest compress to the same bytes per pixel. It runs in its own short-lived worker after analysis and when the page selection changes, and is skipped for files too large for the device.
+- `sign.js` handles visual signatures: a drawing pad (smoothed strokes, stored as points so they redraw sharp at any size), and turning a photo or scan into transparent ink, with the paper level taken from the image itself so grey phone photos come out clean. On export each placed signature is rendered as a PNG for 300 ppi at its size on the page, and the engine draws it on top of the page content. It's a picture of a signature, not a digital signature, and the page says so.
 - `sw.js` is the service worker that makes the site work offline after the first visit. App files are network-first (so deploys show up on the next load), and `vendor/` is cache-first under a cache name that includes the library versions.
 - `export-worker.js` runs the engine off the main thread and uses the browser's JPEG encoder (4:2:0 chroma, much smaller than mupdf's 4:4:4).
 

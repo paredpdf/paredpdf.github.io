@@ -529,3 +529,146 @@ test('no signature warning for an empty signature field or an ordinary PDF', asy
     await expect(page.locator('#sigWarn')).toBeHidden();
   }
 });
+
+/* ---------- visual signatures ---------- */
+
+// Signatures each exported page carries: the rectangle each is drawn in.
+function signatures(bytes) {
+  const doc = new mupdf.PDFDocument(bytes);
+  const out = [];
+  for (let i = 0; i < doc.countPages(); i++) {
+    const c = doc.findPage(i).get('Contents');
+    const last = c.isArray() ? c.get(c.length - 1) : c;
+    const text = last.readStream().asString();
+    const rects = [...text.matchAll(/q ([-\d. ]+) cm \/PaSig\w* Do Q/g)].map((m) => {
+      const [a, b, cc, d, e, f] = m[1].trim().split(/\s+/).map(Number);
+      const xs = [e, e + a, e + cc, e + a + cc], ys = [f, f + b, f + d, f + b + d];
+      return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    });
+    const mb = doc.findPage(i).get('MediaBox');
+    out.push({ rects, media: [0, 1, 2, 3].map((k) => mb.get(k).asNumber()) });
+  }
+  return out;
+}
+
+async function drawSignature(page) {
+  await page.click('#addSign');
+  await expect(page.locator('#signDlg')).toBeVisible();
+  const box = await page.locator('#pad').boundingBox();
+  await page.mouse.move(box.x + 40, box.y + 120);
+  await page.mouse.down();
+  for (let k = 1; k <= 20; k++) await page.mouse.move(box.x + 40 + k * 12, box.y + 120 - 50 * Math.sin(k / 3));
+  await page.mouse.up();
+  await expect(page.locator('#sigUse')).toBeEnabled();
+  await page.click('#sigUse');
+  await expect(page.locator('#signDlg')).toBeHidden();
+}
+
+test('draws a signature, places it, and exports it on that page', async ({ page }) => {
+  await load(page);
+  await drawSignature(page);
+  const sig = page.locator('.sig');
+  await expect(sig).toHaveCount(1);
+  await expect(sig).toBeFocused();
+  await expect(page.locator('#signHint')).toBeVisible();
+  // Other pages don't show it.
+  await page.click('#next');
+  await expect(page.locator('.sig')).toHaveCount(0);
+  await page.click('#prev');
+  await expect(page.locator('.sig')).toHaveCount(1);
+
+  const pages = signatures(await download(page));
+  expect(pages[0].rects).toHaveLength(1);
+  expect(pages.slice(1).every((p) => p.rects.length === 0)).toBe(true);
+  // Inside the cropped page.
+  const [x0, y0, x1, y1] = pages[0].rects[0], m = pages[0].media;
+  expect(x0 >= m[0] - 0.5 && y0 >= m[1] - 0.5 && x1 <= m[2] + 0.5 && y1 <= m[3] + 0.5).toBe(true);
+  expect(x1 - x0).toBeGreaterThan(50);
+});
+
+test('moves a signature with the keyboard and removes it with Delete', async ({ page }) => {
+  await load(page);
+  await drawSignature(page);
+  const sig = page.locator('.sig');
+  const before = await sig.boundingBox();
+  await page.keyboard.press('Shift+ArrowDown');
+  const after = await sig.boundingBox();
+  expect(after.y).toBeGreaterThan(before.y + 5);
+  await expect(page.locator('#pageLabel')).toHaveText('Page 1 of 6'); // arrows didn't turn the page
+  await page.keyboard.press('Delete');
+  await expect(sig).toHaveCount(0);
+  expect(signatures(await download(page))[0].rects).toHaveLength(0);
+});
+
+test('keeps a dragged signature inside the crop area', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'mouse drag');
+  await load(page);
+  await drawSignature(page);
+  const sig = page.locator('.sig');
+  const s = await sig.boundingBox();
+  await page.mouse.move(s.x + s.width / 2, s.y + s.height / 2);
+  await page.mouse.down();
+  // Past the crop's bottom-left corner, staying inside the window.
+  const crop = await page.locator('#crop').boundingBox();
+  await page.mouse.move(crop.x - 150, crop.y + crop.height + 100, { steps: 8 });
+  await page.mouse.up();
+  const now = await sig.boundingBox();
+  expect(now.x).toBeGreaterThanOrEqual(crop.x - 1);
+  expect(now.y + now.height).toBeLessThanOrEqual(crop.y + crop.height + 1);
+  // Resize from the corner, keeping its shape.
+  const ratio = now.width / now.height;
+  const rs = await page.locator('.sig-rs').boundingBox();
+  await page.mouse.move(rs.x + rs.width / 2, rs.y + rs.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(rs.x + rs.width / 2 + 40, rs.y + rs.height / 2 - 40, { steps: 5 });
+  await page.mouse.up();
+  const big = await sig.boundingBox();
+  expect(big.width).toBeGreaterThan(now.width + 30);
+  expect(Math.abs(big.width / big.height - ratio)).toBeLessThan(0.05);
+});
+
+test('turns a photo of a signature into transparent ink', async ({ page }) => {
+  await load(page);
+  await page.click('#addSign');
+  await page.click('#tabUpload');
+  await page.setInputFiles('#sigFile', path.join(FIXTURES, 'blank.png'));
+  await expect(page.locator('#sigErr')).toBeVisible();
+  await expect(page.locator('#sigUse')).toBeDisabled();
+  await page.setInputFiles('#sigFile', path.join(FIXTURES, 'signature.png'));
+  await expect(page.locator('#sigImg')).toBeVisible();
+  await expect(page.locator('#sigErr')).toBeHidden();
+  // The paper is gone: corners are transparent, the stroke is opaque ink.
+  const alpha = await page.locator('#sigImg').evaluate(async (img) => {
+    await img.decode();
+    const c = Object.assign(document.createElement('canvas'), { width: img.naturalWidth, height: img.naturalHeight });
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, c.width, c.height).data;
+    let max = 0;
+    for (let i = 3; i < d.length; i += 4) max = Math.max(max, d[i]);
+    return { corner: d[3], max };
+  });
+  expect(alpha.corner).toBe(0);
+  expect(alpha.max).toBe(255);
+  await page.click('#sigUse');
+  await expect(page.locator('.sig')).toHaveCount(1);
+  expect(signatures(await download(page))[0].rects).toHaveLength(1);
+});
+
+test('a signature on a skipped page is not exported', async ({ page }) => {
+  await load(page);
+  await drawSignature(page);
+  await page.uncheck('#includePage');
+  const pages = signatures(await download(page));
+  expect(pages).toHaveLength(5);
+  expect(pages.every((p) => p.rects.length === 0)).toBe(true);
+});
+
+test('the signature dialog speaks the chosen language', async ({ page }) => {
+  await load(page, PDF, '/?lang=es');
+  await page.click('#addSign');
+  await expect(page.locator('#signDlgTitle')).toHaveText('Tu firma');
+  await expect(page.locator('#sigUse')).toHaveText('Añadir a la página');
+  await page.click('#sigCancel');
+  await expect(page.locator('#signDlg')).toBeHidden();
+});

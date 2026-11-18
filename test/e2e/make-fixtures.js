@@ -41,6 +41,27 @@ function photos() {
   return doc.saveToBuffer('compress=yes').asUint8Array().slice();
 }
 
+// A phone-photo-like signature: grey-ish paper with a dark scribble.
+function signaturePhoto() {
+  const w = 600, h = 240;
+  const pix = new mupdf.Pixmap(mupdf.ColorSpace.DeviceRGB, [0, 0, w, h], false);
+  const px = pix.getPixels(), stride = pix.getStride();
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const paper = 214 + ((x * 7 + y * 13) % 9); // slightly uneven, not pure white
+      const ink = Math.abs(y - (120 + 60 * Math.sin(x / 40))) < 5 && x > 60 && x < 540;
+      px.set(ink ? [30, 32, 40] : [paper, paper, paper - 6], y * stride + x * 3);
+    }
+  }
+  return pix.asPNG().slice();
+}
+
+function blankPhoto() {
+  const pix = new mupdf.Pixmap(mupdf.ColorSpace.DeviceRGB, [0, 0, 200, 100], false);
+  pix.getPixels().fill(235);
+  return pix.asPNG().slice();
+}
+
 export default function globalSetup() {
   fs.mkdirSync(FIXTURES, { recursive: true });
   fs.writeFileSync(path.join(FIXTURES, 'letterboxed.pdf'), letterboxed(6));
@@ -48,5 +69,7 @@ export default function globalSetup() {
   fs.writeFileSync(path.join(FIXTURES, 'long.pdf'), letterboxed(120));
   fs.writeFileSync(path.join(FIXTURES, 'photos.pdf'), photos());
   fs.writeFileSync(path.join(FIXTURES, 'signed.pdf'), signedPdf(1));
+  fs.writeFileSync(path.join(FIXTURES, 'signature.png'), signaturePhoto());
+  fs.writeFileSync(path.join(FIXTURES, 'blank.png'), blankPhoto());
   fs.writeFileSync(path.join(FIXTURES, 'unsigned-field.pdf'), signedPdf(0, { unsigned: 1 }));
 }
