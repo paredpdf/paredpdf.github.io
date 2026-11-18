@@ -5,7 +5,7 @@ import {
 } from './detect.js';
 import { parseRange, formatRange } from './pages.js';
 import { isLargeForDevice, isMemoryError } from './limits.js';
-import { t, ltr, isRtl, lang, setLang, pickLang } from './i18n.js';
+import { t, ltr, isRtl, lang, locale, setLang, pickLang } from './i18n.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdfjs/pdf.worker.min.mjs', import.meta.url).href;
 const PDFJS_ASSETS = {
@@ -965,14 +965,12 @@ showVersion();
 showCompressHint();
 showEstimate();
 
-el.lang.addEventListener('click', () => {
-  const next = lang() === 'he' ? 'en' : 'he';
-  try { localStorage.setItem('pared-lang', next); } catch { /* private mode: just this visit */ }
-  setLang(next);
-  el.lang.lang = next === 'he' ? 'en' : 'he'; // the button names the other language
+el.lang.value = lang();
+el.lang.addEventListener('change', () => {
+  try { localStorage.setItem('pared-lang', el.lang.value); } catch { /* private mode: just this visit */ }
+  setLang(el.lang.value);
   rerender();
 });
-el.lang.lang = lang() === 'he' ? 'en' : 'he';
 
 // Redraw every piece of text the app writes itself, in the current language.
 function rerender() {
@@ -995,7 +993,7 @@ function showVersion() {
   const commit = meta('pared-commit'), deployed = new Date(meta('pared-deployed'));
   el.version.hidden = !commit || Number.isNaN(deployed.getTime());
   if (el.version.hidden) return;
-  const when = new Intl.DateTimeFormat(lang() === 'he' ? 'he-IL' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(deployed);
+  const when = new Intl.DateTimeFormat(locale(), { dateStyle: 'medium', timeStyle: 'short' }).format(deployed);
   el.versionLink.textContent = t('foot.version', { commit: ltr(commit.slice(0, 7)), when });
   el.versionLink.href = `https://github.com/paredpdf/paredpdf.github.io/commit/${commit}`;
   el.versionLink.title = `${commit}\n${deployed.toISOString()}`;

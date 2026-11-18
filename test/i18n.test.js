@@ -77,3 +77,18 @@ test('range errors carry a code and params for translation', () => {
   assert.equal(strings('en')['range.backwards'](err('7-3').params), err('7-3').message);
   assert.equal(strings('he')['range.backwards'](err('7-3').params), '"7-3" הפוך. התכוונתם ל־3-7?');
 });
+
+test('Arabic uses its plural forms for page counts', () => {
+  const ar = strings('ar')['export.downloadN'];
+  assert.deepEqual([1, 2, 3, 10, 11, 100, 103].map((n) => ar({ n }).split(' · ')[1]),
+    ['صفحة واحدة', 'صفحتان', '3 صفحات', '10 صفحات', '11 صفحة', '100 صفحة', '103 صفحات']);
+});
+
+test('picks Spanish and Arabic from regional browser languages', () => {
+  assert.equal(pickLang({ languages: ['es-MX'] }), 'es');
+  assert.equal(pickLang({ languages: ['ar-EG', 'en'] }), 'ar');
+});
+
+test('page ranges accept the Arabic comma', () => {
+  assert.deepEqual(parseRange('1، 3-4', 10), [1, 3, 4]);
+});

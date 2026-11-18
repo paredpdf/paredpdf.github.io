@@ -9,7 +9,8 @@ export function parseRange(str, n) {
   if (!s || /^all$/i.test(s)) return Array.from({ length: n }, (_, i) => i + 1);
   const fail = (code, params, msg) => { throw Object.assign(new Error(msg), { code, params }); };
   const out = new Set();
-  for (const part of s.split(/[,;\s]+/).filter(Boolean)) {
+  // Commas, semicolons or spaces between parts; ، is the Arabic comma.
+  for (const part of s.split(/[,;\s\u060C]+/).filter(Boolean)) {
     const m = part.match(/^(\d+)?-(\d+)?$/) || part.match(/^(\d+)$/);
     if (!m) fail('notRange', { part }, `"${part}" isn't a page or range. Use something like 1-5, 8.`);
     const a = Number(m[1] ?? 1), b = part.includes('-') ? Number(m[2] ?? n) : a;

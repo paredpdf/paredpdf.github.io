@@ -369,7 +369,7 @@ test('shows the interface in Hebrew, right to left', async ({ page }) => {
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
   await expect(page.locator('html')).toHaveAttribute('lang', 'he');
   await expect(page.locator('#drop h1')).toHaveText('גררו לכאן קובץ PDF');
-  await expect(page.locator('#lang')).toHaveText('English');
+  await expect(page.locator('#lang')).toHaveValue('he');
   await page.setInputFiles('#file', PDF);
   await expect(page.locator('#exportCard')).toBeVisible({ timeout: 60_000 });
   await expect(page.locator('#confidence')).toHaveText('מדויק');
@@ -388,7 +388,7 @@ test('shows the interface in Hebrew, right to left', async ({ page }) => {
 test('switches language with a loaded file, and remembers the choice', async ({ page }) => {
   await load(page);
   await expect(page.locator('#selCount')).toHaveText('6 of 6 selected');
-  await page.click('#lang');
+  await page.selectOption('#lang', 'he');
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
   await expect(page.locator('#selCount')).toHaveText('6 מתוך 6 נבחרו');
   await expect(page.locator('#confidence')).toHaveText('מדויק');
@@ -399,7 +399,8 @@ test('switches language with a loaded file, and remembers the choice', async ({ 
 
   await page.reload();
   await expect(page.locator('#drop h1')).toHaveText('גררו לכאן קובץ PDF');
-  await page.click('#lang');
+  await expect(page.locator('#lang')).toHaveValue('he');
+  await page.selectOption('#lang', 'en');
   await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
   await expect(page.locator('#drop h1')).toHaveText('Drop a PDF here');
 });
@@ -464,6 +465,48 @@ test('a deployed copy shows its commit and deploy time', async ({ page }) => {
   const link = page.locator('#versionLink');
   await expect(link).toHaveText(/^Version 91fc7b0, deployed 18 Nov 2026, \d\d:02$/);
   await expect(link).toHaveAttribute('href', `https://github.com/paredpdf/paredpdf.github.io/commit/${sha}`);
-  await page.click('#lang');
+  await page.selectOption('#lang', 'he');
   await expect(link).toHaveText(/^גרסה ⁦91fc7b0⁩, עלתה ב־.*2026/);
+});
+
+/* ---------- Arabic and Spanish ---------- */
+
+test('shows the interface in Arabic, right to left', async ({ page }) => {
+  await load(page, PDF, '/?lang=ar');
+  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'ar');
+  await expect(page.locator('#confidence')).toHaveText('دقيق');
+  await expect(page.locator('#selCount')).toHaveText('تم تحديد 6 من 6');
+  await expect(page.locator('#download')).toHaveText('تنزيل PDF · 6 صفحات');
+  // Arabic keyboards type ، between parts of a range.
+  await page.fill('#range', '1، 3');
+  await page.press('#range', 'Enter');
+  await expect(page.locator('#download')).toHaveText('تنزيل PDF · صفحتان');
+  // Right to left like Hebrew: the left arrow moves a page forward.
+  await page.locator('.thumb[data-p="1"] .tdrag').focus();
+  await page.keyboard.press('ArrowLeft');
+  expect(await gridOrder(page)).toEqual([2, 1, 3, 4, 5, 6]);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test('shows the interface in Spanish', async ({ page }) => {
+  await load(page, PDF, '/?lang=es');
+  await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
+  await expect(page.locator('#confidence')).toHaveText('Exacta');
+  await expect(page.locator('#detectText')).toHaveText(
+    'Una página 9:16 vertical, centrada en la hoja A4 horizontal. El propio PDF marca este contorno, así que es exacto.');
+  await expect(page.locator('#selCount')).toHaveText('6 de 6 seleccionadas');
+  await page.fill('#range', '5-2');
+  await page.press('#range', 'Enter');
+  await expect(page.locator('#rangeErr')).toHaveText('"5-2" está al revés. ¿Querías decir 2-5?');
+});
+
+test('picks the language from the browser', async ({ browser }) => {
+  const context = await browser.newContext({ locale: 'es-MX' });
+  const page = await context.newPage();
+  await page.goto('/');
+  await expect(page.locator('#drop h1')).toHaveText('Suelta un PDF aquí');
+  await expect(page.locator('#lang')).toHaveValue('es');
+  await context.close();
 });
