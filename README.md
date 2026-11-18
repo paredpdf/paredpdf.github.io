@@ -40,6 +40,7 @@ The tests use Node's built-in test runner and cover page detection (`detect.js`)
   - **Skipped images:** 1-bit, tiny, and already-JPEG images at a sensible resolution. Also lossless images that compress well (logos, screenshots), since JPEG would only blur them.
   - Soft masks (transparency) are resized along with their image.
   - Saves with garbage collection, so skipped pages' images are actually removed.
+  - **Size estimate:** `estimateSizes` predicts the exported size at each resolution before you export. The uncompressed size is a real save, so it's exact. For each resolution it encodes the three largest images that would be shrunk and assumes the rest compress to the same bytes per pixel. It runs in its own short-lived worker after analysis and when the page selection changes, and is skipped for files too large for the device.
 - `sw.js` is the service worker that makes the site work offline after the first visit. App files are network-first (so deploys show up on the next load), and `vendor/` is cache-first under a cache name that includes the library versions.
 - `export-worker.js` runs the engine off the main thread and uses the browser's JPEG encoder (4:2:0 chroma, much smaller than mupdf's 4:4:4).
 
@@ -60,5 +61,5 @@ AGPL-3.0 (see `LICENSE`), matching mupdf.js, which Pared uses for export.
 
 ## Next
 
-- Read the exporter's own clipping rectangle when one exists, for an exact box with no guessing.
-- Drag-to-reorder pages (mupdf's `rearrangePages` already supports any order).
+- Hebrew (right-to-left) interface.
+- Testing on real phones, including iOS Safari.

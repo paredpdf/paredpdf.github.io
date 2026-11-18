@@ -26,7 +26,7 @@ const el = Object.fromEntries([
   'fname', 'fmeta', 'progress', 'progressBar', 'progressText',
   'detectCard', 'confidence', 'detectText', 'groupSel',
   'boxCard', 'scopeAll', 'scopePage', 'scopeHint', 'orientP', 'orientL', 'chips', 'rSize', 'rMm', 'rRatio',
-  'exportCard', 'memWarn', 'compress', 'ppiField', 'ppi', 'compressHint', 'download', 'saveProgress', 'saveBar', 'saveText',
+  'exportCard', 'memWarn', 'compress', 'ppiField', 'ppi', 'compressHint', 'estimate', 'download', 'saveProgress', 'saveBar', 'saveText',
   'reset', 'error',
 ].map((id) => [id, $(id)]));
 
@@ -59,6 +59,9 @@ function resetAll() {
   thumbQueue.length = 0;
   state?.pdf?.destroy();
   state = null;
+  cancelEstimate();
+  estimate = null;
+  showEstimate();
   el.file.value = '';
   el.thumbs.replaceChildren();
   el.work.hidden = true;
@@ -92,9 +95,10 @@ async function open(file) {
     if (my !== session) return;
     const g0 = state.groups[0];
     el.fmeta.textContent = `${fmtBytes(file.size)} · ${state.n} page${state.n > 1 ? 's' : ''} · ${fmtSheet(g0.W, g0.H)}`;
-    el.memWarn.hidden = !isLargeForDevice(file.size, {
+    state.large = isLargeForDevice(file.size, {
       deviceMemory: navigator.deviceMemory, coarsePointer: matchMedia('(pointer: coarse)').matches,
     });
+    el.memWarn.hidden = !state.large;
     buildThumbs();
     updateSelectionUI();
     showPage(1);
@@ -169,6 +173,7 @@ async function analyse(my) {
   el.exportCard.hidden = false;
   refreshPanel();
   warmWorker();
+  scheduleEstimate(0);
 }
 
 // The outermost rectangular clip on the page that could be the real page,
@@ -698,6 +703,7 @@ function updateSelectionUI() {
   }
   updateCurrentInclusion();
   el.download.disabled = pages.length === 0;
+  scheduleEstimate();
   el.download.textContent = pages.length === 0 ? 'Select at least one page'
     : `Download PDF · ${pages.length} page${pages.length > 1 ? 's' : ''}`;
 }
@@ -720,7 +726,87 @@ el.compress.addEventListener('change', () => {
   el.compressHint.textContent = el.compress.checked
     ? 'Shrinks photos to the chosen resolution and saves them as JPEG. Text and vector graphics aren\'t touched.'
     : 'Images are kept as they are. Skipped pages and their images are still removed.';
+  showEstimate();
 });
+el.ppi.addEventListener('change', showEstimate);
+
+/* ---------- size estimate (in its own short-lived worker) ---------- */
+
+const PRESETS = [...el.ppi.options].map((o) => Number(o.value));
+const PRESET_LABELS = [...el.ppi.options].map((o) => o.textContent);
+let estimate = null;      // { key, sizes } once known for the current selection
+let estimateTimer = 0, estimateWorker = null, estimateKey = '';
+
+function keepList() {
+  return state.order.filter((p) => state.selected[p]).map((p) => p - 1);
+}
+
+function scheduleEstimate(delay = 600) {
+  if (!state || !state.groups.every((g) => g.done)) return;
+  clearTimeout(estimateTimer);
+  const keep = keepList();
+  const key = keep.join(',');
+  if (state.large || !keep.length) { cancelEstimate(); estimate = null; showEstimate(); return; }
+  if (key === estimateKey) return; // already estimated or estimating
+  cancelEstimate();
+  estimateKey = key;
+  estimate = null;
+  showEstimate();
+  estimateTimer = setTimeout(() => runEstimate(key, keep), delay);
+}
+
+function cancelEstimate() {
+  clearTimeout(estimateTimer);
+  estimateWorker?.terminate();
+  estimateWorker = null;
+  estimateKey = '';
+}
+
+async function runEstimate(key, keep) {
+  const my = session;
+  const data = new Uint8Array(await state.file.arrayBuffer());
+  if (my !== session || estimateKey !== key) return;
+  const w = new Worker(new URL('./export-worker.js', import.meta.url), { type: 'module' });
+  estimateWorker = w;
+  try {
+    const sizes = await new Promise((resolve, reject) => {
+      w.onmessage = (e) => {
+        const m = e.data;
+        if (m.type === 'ready') post();
+        else if (m.type === 'done') resolve(m.sizes);
+        else if (m.type === 'error') reject(new Error(m.message));
+      };
+      w.onerror = (e) => reject(new Error(e.message || 'estimate failed'));
+      // Messages sent before the worker has loaded mupdf can be lost, so wait
+      // for "ready". Crop boxes don't change the size noticeably; the page
+      // subset does, so only that is sent.
+      const post = () => w.postMessage({ id: 0, kind: 'estimate', bytes: data, opts: {
+        keep, presets: PRESETS.map((ppi) => ({ ppi, quality: QUALITY[ppi] ?? 78 })),
+      } }, [data.buffer]);
+    });
+    if (estimateWorker !== w || my !== session) return;
+    estimate = { key, sizes };
+  } catch (err) {
+    console.warn('size estimate failed', err);
+    if (estimateWorker === w) estimate = null;
+  } finally {
+    w.terminate();
+    if (estimateWorker === w) { estimateWorker = null; showEstimate(); }
+  }
+}
+
+function showEstimate() {
+  const known = estimate && estimate.key === estimateKey ? estimate.sizes : null;
+  [...el.ppi.options].forEach((o, i) => {
+    o.textContent = known ? `${PRESET_LABELS[i]} · ≈ ${fmtBytes(known.presets[i])}` : PRESET_LABELS[i];
+  });
+  if (!state || state.large || !estimateKey) { el.estimate.hidden = true; return; }
+  el.estimate.hidden = false;
+  if (!known) { el.estimate.textContent = 'Estimating the file size…'; return; }
+  const size = el.compress.checked ? known.presets[PRESETS.indexOf(Number(el.ppi.value))] : known.none;
+  el.estimate.replaceChildren('Estimated size: ', Object.assign(document.createElement('strong'), { textContent: `≈ ${fmtBytes(size)}` }),
+    ` (now ${fmtBytes(state.file.size)})`);
+}
 
 let worker = null, workerReady = null;
 const pending = new Map();
@@ -769,6 +855,8 @@ async function exportPdf() {
   el.download.disabled = true;
   el.error.hidden = true;
   el.saveProgress.hidden = true;
+  // Free the estimate's memory for the export; it reruns on the next change.
+  if (estimateWorker) { cancelEstimate(); showEstimate(); }
   const say = (t) => { el.saveText.textContent = t; };
 
   try {
@@ -806,7 +894,7 @@ async function exportPdf() {
         },
       });
       // Transferred, not copied: the worker owns the only copy from here on.
-      worker.postMessage({ id, bytes: data, opts: { boxes, keep: state.order.filter((p) => state.selected[p]).map((p) => p - 1),
+      worker.postMessage({ id, bytes: data, opts: { boxes, keep: keepList(),
         rotate: Array.from(state.rot.subarray(1)), compress } }, [data.buffer]);
     });
     retireWorker();
@@ -841,6 +929,7 @@ async function exportPdf() {
         : `Couldn't write the PDF: ${err?.message || err}`);
   } finally {
     if (state) el.download.disabled = selectedPages().length === 0;
+    if (state && my === session) scheduleEstimate();
   }
 }
 

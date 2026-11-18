@@ -72,6 +72,32 @@ test('exports the cropped pages with compressed images', async ({ page }) => {
   await expect(page.locator('.result')).toContainText('_200ppi.pdf');
 });
 
+const MB = (t) => Number(t.match(/≈ ([\d.]+) MB/)?.[1]);
+const KB = (t) => { const m = t.match(/≈ ([\d.]+) (KB|MB)/); return m ? Number(m[1]) * (m[2] === 'MB' ? 1000 : 1) : NaN; };
+
+test('estimates the size before export, close to the real result', async ({ page }) => {
+  await load(page);
+  await expect(page.locator('#estimate')).toContainText('Estimated size: ≈', { timeout: 30_000 });
+  await expect(page.locator('#ppi option[value="150"]')).toContainText('≈');
+  const est = KB(await page.locator('#estimate').textContent());
+  const actual = (await download(page)).length / 1000;
+  expect(Math.abs(est - actual) / actual).toBeLessThan(0.25);
+
+  // Switching compression off shows the uncompressed estimate.
+  await page.uncheck('#compress');
+  expect(KB(await page.locator('#estimate').textContent())).toBeGreaterThan(est * 2);
+});
+
+test('updates the estimate when pages are skipped', async ({ page }) => {
+  await load(page, path.join(FIXTURES, 'photos.pdf'));
+  await expect(page.locator('#estimate')).toContainText('≈', { timeout: 30_000 });
+  const all = KB(await page.locator('#estimate').textContent());
+  await page.fill('#range', '1');
+  await page.press('#range', 'Enter');
+  await expect(page.locator('#selCount')).toHaveText('1 of 3 selected');
+  await expect.poll(async () => KB(await page.locator('#estimate').textContent()), { timeout: 30_000 }).toBeLessThan(all * 0.6);
+});
+
 test('exports without compression when it is switched off', async ({ page }) => {
   await load(page);
   await page.uncheck('#compress');

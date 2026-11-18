@@ -119,6 +119,8 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 .readout dt { color: var(--ink-2); }
 .readout dd { margin: 0; font-variant-numeric: tabular-nums; }
 .hint { color: var(--ink-2); font-size: 13px; margin-top: 10px !important; }
+.estimate { font-size: 13px; margin: 8px 0 0; }
+.estimate strong { font-variant-numeric: tabular-nums; }
 
 .groupsel { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
 

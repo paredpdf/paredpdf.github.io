@@ -18,6 +18,71 @@ const SKIP_FILTERS = new Set(['JBIG2Decode', 'CCITTFaxDecode']);
  * @param progress  callback({ phase, done?, total? })
  */
 export async function processPdf(mupdf, bytes, opts, progress = () => {}) {
+  const doc = prepare(mupdf, bytes, opts, progress);
+  bytes = null;
+
+  const stats = opts.compress ? await compressImages(mupdf, doc, opts.compress, opts.encodeJpeg, progress) : null;
+
+  progress({ phase: 'save' });
+  const result = saveBytes(doc);
+  doc.destroy?.();
+  return { bytes: result, stats };
+}
+
+/**
+ * Estimate the exported size without compression and at each compression
+ * preset, cheaply enough to show before the user exports.
+ *
+ * The uncompressed size is exact (it is a real save). For each preset, the
+ * few largest images that would be re-encoded are encoded for real; the rest
+ * are assumed to compress to the same bytes per pixel.
+ *
+ * @param opts  same boxes/keep/rotate/encodeJpeg as processPdf, plus
+ *              presets: [{ ppi, quality }]
+ * @returns { none, presets: number[] }  sizes in bytes
+ */
+export async function estimateSizes(mupdf, bytes, opts, progress = () => {}) {
+  const doc = prepare(mupdf, bytes, opts, progress);
+  bytes = null;
+  try {
+    progress({ phase: 'scan' });
+    const uses = [...collectImageUses(doc).values()];
+    const savings = [];
+    for (const { ppi = 200, quality = 82 } of opts.presets ?? []) {
+      const plans = [];
+      for (const u of uses) {
+        try { const p = planImage(doc, u, ppi); if (p) plans.push(p); } catch { /* skipped on export too */ }
+      }
+      plans.sort((a, b) => b.nw * b.nh - a.nw * a.nh);
+      let saving = 0, samplePx = 0, sampleBytes = 0, k = 0;
+      for (; k < plans.length && k < ESTIMATE_SAMPLES; k++) {
+        const p = plans[k];
+        let enc = null;
+        try { enc = await encodeImage(mupdf, doc, p, quality, opts.encodeJpeg); } catch { /* left as is */ }
+        if (!enc) continue;
+        samplePx += p.nw * p.nh;
+        sampleBytes += enc.jpeg.length;
+        if (enc.jpeg.length < p.rawLen * 0.9) saving += p.rawLen - enc.jpeg.length;
+      }
+      const perPx = samplePx ? sampleBytes / samplePx : 0;
+      for (; perPx && k < plans.length; k++) {
+        const p = plans[k], est = perPx * p.nw * p.nh;
+        if (est < p.rawLen * 0.9) saving += p.rawLen - est;
+      }
+      savings.push(saving);
+    }
+    progress({ phase: 'save' });
+    const none = saveBytes(doc).length;
+    return { none, presets: savings.map((s) => Math.max(0, Math.round(none - s))) };
+  } finally {
+    doc.destroy?.();
+  }
+}
+
+const ESTIMATE_SAMPLES = 3;
+
+// Open the PDF and apply crop boxes, rotation and the page subset/order.
+function prepare(mupdf, bytes, opts, progress) {
   progress({ phase: 'open' });
   const doc = new mupdf.PDFDocument(bytes);
   bytes = null; // mupdf has its own copy; let the caller's buffer be freed
@@ -40,20 +105,19 @@ export async function processPdf(mupdf, bytes, opts, progress = () => {}) {
   });
 
   const keep = opts.keep ?? [...Array(n).keys()];
-  if (keep.length === 0) throw new Error('No pages selected');
+  if (keep.length === 0) { doc.destroy?.(); throw new Error('No pages selected'); }
   if (keep.length !== n || keep.some((p, i) => p !== i)) {
     progress({ phase: 'pages' });
     doc.rearrangePages(keep);
   }
+  return doc;
+}
 
-  const stats = opts.compress ? await compressImages(mupdf, doc, opts.compress, opts.encodeJpeg, progress) : null;
-
-  progress({ phase: 'save' });
+function saveBytes(doc) {
   const out = doc.saveToBuffer('garbage=deduplicate,compress=yes');
   const result = out.asUint8Array().slice();
   out.destroy?.();
-  doc.destroy?.();
-  return { bytes: result, stats };
+  return result;
 }
 
 /* ---------- image usage: how large is each image drawn? ---------- */
@@ -209,17 +273,17 @@ function filterNames(f) {
   return [];
 }
 
-async function rewriteImage(mupdf, doc, u, ppi, quality, encodeJpeg, stats, doneMasks) {
+// Decide whether and how far to shrink an image; null means leave it alone.
+function planImage(doc, u, ppi) {
   const obj = u.ref;
-  if (doneMasks.has(obj.asIndirect())) return;
   const im = obj.get('ImageMask');
-  if (im.isBoolean() && im.asBoolean()) return;
+  if (im.isBoolean() && im.asBoolean()) return null;
   const W = obj.get('Width').asNumber(), H = obj.get('Height').asNumber();
   const bpc = obj.get('BitsPerComponent');
-  if (bpc.isNumber() && bpc.asNumber() < 8) return;
-  if (W * H < 128 * 128 || u.w <= 0 || u.h <= 0) return;
+  if (bpc.isNumber() && bpc.asNumber() < 8) return null;
+  if (W * H < 128 * 128 || u.w <= 0 || u.h <= 0) return null;
   const filters = filterNames(obj.get('Filter'));
-  if (filters.some((f) => SKIP_FILTERS.has(f))) return;
+  if (filters.some((f) => SKIP_FILTERS.has(f))) return null;
   const rawLen = obj.get('Length').asNumber();
   const isJpeg = filters.includes('DCTDecode');
 
@@ -227,15 +291,26 @@ async function rewriteImage(mupdf, doc, u, ppi, quality, encodeJpeg, stats, done
   let scale = Math.min(1, Math.max((u.w / 72) * ppi / W, (u.h / 72) * ppi / H));
   if (scale > 0.85) scale = 1;
 
-  const image = doc.loadImage(obj);
-  const nComp = image.getNumberOfComponents();
-  // Not worth touching: already JPEG at a sensible size, or lossless data that
-  // compresses well (logos, screenshots), which JPEG would only blur.
-  if (scale === 1 && (isJpeg || rawLen / (W * H * nComp) < 0.3)) { image.destroy?.(); return; }
+  if (scale === 1) {
+    // Not worth touching: already JPEG at a sensible size, or lossless data
+    // that compresses well (logos, screenshots), which JPEG would only blur.
+    if (isJpeg) return null;
+    const image = doc.loadImage(obj);
+    const nComp = image.getNumberOfComponents();
+    image.destroy?.();
+    if (rawLen / (W * H * nComp) < 0.3) return null;
+  }
+  const nw = Math.max(1, Math.round(W * scale)), nh = Math.max(1, Math.round(H * scale));
+  return { obj, W, H, scale, nw, nh, rawLen };
+}
 
+// Decode, shrink and JPEG-encode a planned image. Null if it has alpha.
+async function encodeImage(mupdf, doc, plan, quality, encodeJpeg) {
+  const { obj, nw, nh, scale } = plan;
+  const image = doc.loadImage(obj);
   let pix = image.toPixmap();
   image.destroy?.();
-  if (pix.getAlpha()) { pix.destroy?.(); return; }
+  if (pix.getAlpha()) { pix.destroy?.(); return null; }
 
   const csObj = obj.get('ColorSpace');
   let keepCs = false;
@@ -251,19 +326,32 @@ async function rewriteImage(mupdf, doc, u, ppi, quality, encodeJpeg, stats, done
     pix = rgb;
   }
 
-  const nw = Math.max(1, Math.round(W * scale)), nh = Math.max(1, Math.round(H * scale));
   const out = scale === 1 ? pix : resamplePixmap(mupdf, pix, nw, nh);
   let jpeg;
   if (encodeJpeg && out.getNumberOfComponents() === 3) {
     const px = out.getPixels(), stride = out.getStride();
     const rgb = new Uint8Array(nw * nh * 3); // copy out of the wasm heap before awaiting
     for (let y = 0; y < nh; y++) rgb.set(px.subarray(y * stride, y * stride + nw * 3), y * nw * 3);
+    if (out !== pix) out.destroy?.();
+    pix.destroy?.();
     jpeg = await encodeJpeg(rgb, nw, nh, quality);
   } else {
     jpeg = out.asJPEG(quality, false).slice();
+    if (out !== pix) out.destroy?.();
+    pix.destroy?.();
   }
-  if (out !== pix) out.destroy?.();
-  pix.destroy?.();
+  return { jpeg, keepCs };
+}
+
+async function rewriteImage(mupdf, doc, u, ppi, quality, encodeJpeg, stats, doneMasks) {
+  const obj = u.ref;
+  if (doneMasks.has(obj.asIndirect())) return;
+  const plan = planImage(doc, u, ppi);
+  if (!plan) return;
+  const enc = await encodeImage(mupdf, doc, plan, quality, encodeJpeg);
+  if (!enc) return;
+  const { jpeg, keepCs } = enc;
+  const { nw, nh, rawLen, scale } = plan;
 
   if (jpeg.length >= rawLen * 0.9) return; // no real gain
 

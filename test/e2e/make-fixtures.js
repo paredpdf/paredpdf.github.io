@@ -30,9 +30,21 @@ function letterboxed(pages, { clip = true } = {}) {
   return doc.saveToBuffer('compress=yes').asUint8Array().slice();
 }
 
+// Three plain A4 pages, each with its own photo, so skipping pages changes the size.
+function photos() {
+  const doc = new mupdf.PDFDocument();
+  for (let i = 0; i < 3; i++) {
+    const im = doc.addImage(new mupdf.Image(photoPixmap(1400, 1000, 11 + i)));
+    const content = `0.8 0.2 0.1 rg 20 520 ${60 + i * 30} 20 re f\nq 400 0 0 285 100 200 cm /Im0 Do Q`;
+    doc.insertPage(-1, doc.addPage([0, 0, 595, 842], 0, { XObject: { Im0: im } }, content));
+  }
+  return doc.saveToBuffer('compress=yes').asUint8Array().slice();
+}
+
 export default function globalSetup() {
   fs.mkdirSync(FIXTURES, { recursive: true });
   fs.writeFileSync(path.join(FIXTURES, 'letterboxed.pdf'), letterboxed(6));
   fs.writeFileSync(path.join(FIXTURES, 'letterboxed-noclip.pdf'), letterboxed(6, { clip: false }));
   fs.writeFileSync(path.join(FIXTURES, 'long.pdf'), letterboxed(120));
+  fs.writeFileSync(path.join(FIXTURES, 'photos.pdf'), photos());
 }

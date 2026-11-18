@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { processPdf, tokenize } from '../pdf-core.js';
+import { processPdf, estimateSizes, tokenize } from '../pdf-core.js';
 import { mupdf, makePdf, inspect } from './fixtures.js';
 
 const A4L = { W: 842, H: 595 };
@@ -131,6 +131,50 @@ test('uses the supplied JPEG encoder for RGB images', async () => {
   const src = makePdf([{ ...A4L, draw: [{ image: { w: 2000, h: 1000 }, at: [0, 0, 300, 150] }] }]);
   await processPdf(mupdf, src, { compress: { ppi: 150, quality: 70 }, encodeJpeg });
   assert.deepEqual(calls, [{ w: 625, h: 313, quality: 70, bytes: 625 * 313 * 3 }]);
+});
+
+/* ---------- size estimate ---------- */
+
+// Eight photos of different sizes over four pages, so the estimate has to
+// extrapolate from its samples; plus one small image it must leave alone.
+function photoBook() {
+  const pages = [];
+  for (let p = 0; p < 4; p++) {
+    pages.push({ ...A4L, draw: [
+      { image: { w: 1200 + 200 * p, h: 800 + 100 * p, seed: 2 * p + 1 }, at: [20, 20, 380, 250] },
+      { image: { w: 900, h: 900 - 100 * p, seed: 2 * p + 2 }, at: [420, 20, 300, 260] },
+      ...(p === 0 ? [{ image: { w: 120, h: 120, seed: 99 }, at: [20, 400, 40, 40] }] : []),
+    ] });
+  }
+  return makePdf(pages);
+}
+
+test('estimates the uncompressed size exactly', async () => {
+  const src = photoBook();
+  const opts = { boxes: [SLIDE, null, SLIDE, null], keep: [3, 0, 2], rotate: [90, 0, 0, 0] };
+  const est = await estimateSizes(mupdf, src, { ...opts, presets: [] });
+  const { bytes } = await run(src, opts);
+  assert.equal(est.none, bytes.length);
+});
+
+test('estimates compressed sizes close to the real export', async () => {
+  const src = photoBook();
+  const presets = [{ ppi: 150, quality: 72 }, { ppi: 200, quality: 78 }, { ppi: 300, quality: 85 }];
+  const keep = [0, 1, 2, 3];
+  const est = await estimateSizes(mupdf, src, { keep, presets });
+  for (let i = 0; i < presets.length; i++) {
+    const { bytes } = await run(src, { keep, compress: presets[i] });
+    const err = Math.abs(est.presets[i] - bytes.length) / bytes.length;
+    assert.ok(err < 0.25, `${presets[i].ppi} ppi: estimated ${est.presets[i]}, actual ${bytes.length}`);
+    assert.ok(est.presets[i] < est.none);
+  }
+  assert.ok(est.presets[0] <= est.presets[1] && est.presets[1] <= est.presets[2]);
+});
+
+test('estimates no saving when nothing would be re-encoded', async () => {
+  const src = makePdf([{ ...A4L, draw: [{ image: { w: 600, h: 300, jpeg: true }, at: [0, 0, 300, 150] }] }]);
+  const est = await estimateSizes(mupdf, src, { presets: [{ ppi: 150, quality: 75 }] });
+  assert.equal(est.presets[0], est.none);
 });
 
 /* ---------- content-stream tokenizer ---------- */

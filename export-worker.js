@@ -1,6 +1,6 @@
 // Runs the export off the main thread so the page stays responsive.
 import * as mupdf from './vendor/mupdf/mupdf.js';
-import { processPdf } from './pdf-core.js';
+import { processPdf, estimateSizes } from './pdf-core.js';
 import { isMemoryError } from './limits.js';
 
 // Browser JPEG encoder: 4:2:0 chroma subsampling, much smaller than mupdf's.
@@ -16,15 +16,19 @@ async function encodeJpeg(rgb, w, h, quality) {
 }
 
 self.onmessage = async (e) => {
-  const { id, opts } = e.data;
+  const { id, opts, kind } = e.data;
   // Hand the bytes over without keeping a reference here, so they can be
   // freed once mupdf has its own copy.
   const take = (msg) => { const b = msg.bytes; msg.bytes = null; return b; };
+  const full = { ...opts, encodeJpeg: typeof OffscreenCanvas === 'function' ? encodeJpeg : null };
+  const progress = (p) => self.postMessage({ type: 'progress', id, ...p });
   try {
-    const r = await processPdf(mupdf, take(e.data), {
-      ...opts,
-      encodeJpeg: typeof OffscreenCanvas === 'function' ? encodeJpeg : null,
-    }, (p) => self.postMessage({ type: 'progress', id, ...p }));
+    if (kind === 'estimate') {
+      const sizes = await estimateSizes(mupdf, take(e.data), full, progress);
+      self.postMessage({ type: 'done', id, sizes });
+      return;
+    }
+    const r = await processPdf(mupdf, take(e.data), full, progress);
     self.postMessage({ type: 'done', id, bytes: r.bytes, stats: r.stats }, [r.bytes.buffer]);
   } catch (err) {
     self.postMessage({ type: 'error', id, message: String(err?.message || err), memory: isMemoryError(err) });
