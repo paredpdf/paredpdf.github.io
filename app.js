@@ -1517,6 +1517,11 @@ async function exportPdf() {
 // screen, after "Reload" or "Start over" when a file is open. The page only
 // reloads for a switch it asked for.
 let waitingWorker = null, switching = false;
+// Only a page that was already running on an earlier version can be
+// updated. On a first visit the new worker takes control by itself, and
+// some browsers (WebKit) report it as installed only after that: without
+// this, that first install looked like an update and reloaded the page.
+const ranOnEarlierVersion = !!navigator.serviceWorker?.controller;
 
 function applyUpdate() {
   if (!waitingWorker) return;
@@ -1524,8 +1529,9 @@ function applyUpdate() {
   waitingWorker.postMessage({ type: 'skip-waiting' });
 }
 
-function offerUpdate(worker) {
-  if (!worker || !navigator.serviceWorker.controller) return; // first install: nothing to replace
+function offerUpdate(reg) {
+  const worker = reg.waiting;
+  if (!worker || !ranOnEarlierVersion) return;
   waitingWorker = worker;
   if (!state) applyUpdate();
   else el.updateBar.hidden = false;
@@ -1538,10 +1544,10 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
       const reg = await navigator.serviceWorker.register('./sw.js');
-      if (reg.waiting) offerUpdate(reg.waiting);
+      offerUpdate(reg);
       reg.addEventListener('updatefound', () => {
         const w = reg.installing;
-        w?.addEventListener('statechange', () => { if (w.state === 'installed') offerUpdate(w); });
+        w?.addEventListener('statechange', () => { if (w.state === 'installed') offerUpdate(reg); });
       });
     } catch (err) {
       console.warn('offline support unavailable', err);

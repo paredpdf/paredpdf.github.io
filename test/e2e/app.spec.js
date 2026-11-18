@@ -982,6 +982,9 @@ async function installed(page, request, name, version) {
   await deployAs(request, name, version);
   await page.goto(`/t/${name}/`);
   await page.waitForFunction(() => navigator.serviceWorker.controller);
+  // A returning visit: the page starts on this version, as an installed app does.
+  await page.reload();
+  await page.waitForFunction(() => navigator.serviceWorker.controller);
   expect(await appCaches(page)).toEqual([`pared-app-${version}`]);
 }
 
@@ -1063,4 +1066,18 @@ test('on a turned page, the thumbnail shows the signature upright too', async ({
   await page.click('#sigUse');
   const b = await page.locator('.thumb[data-p="1"] .tsig').boundingBox();
   expect(b.width).toBeGreaterThan(b.height * 2); // wide, like the name, on screen
+});
+
+test('a first visit never reloads by itself', async ({ page, request }, info) => {
+  // The first install takes control at once; it must not be taken for an
+  // update (WebKit reports it as installed late, which used to reload).
+  const name = `first-${info.project.name}`;
+  await deployAs(request, name, 'ddddddd44444');
+  await page.goto(`/t/${name}/`);
+  await page.evaluate(() => { window.firstLoad = true; });
+  await page.setInputFiles('#file', PDF);
+  await expect(page.locator('#exportCard')).toBeVisible({ timeout: 60_000 });
+  await page.waitForTimeout(1000);
+  expect(await page.evaluate(() => window.firstLoad)).toBe(true);
+  await expect(page.locator('#updateBar')).toBeHidden();
 });
