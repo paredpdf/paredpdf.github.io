@@ -35,7 +35,7 @@
 
   <main>
     <section id="drop" class="drop" tabindex="0">
-      <input id="file" type="file" accept="application/pdf,.pdf" hidden>
+      <input id="file" type="file" accept="application/pdf,.pdf" multiple hidden>
       <div class="drop-inner">
         <svg viewBox="0 0 120 80" width="150" aria-hidden="true" class="drop-art">
           <rect x="4" y="8" width="112" height="64" rx="4" class="sheet"/>
@@ -46,6 +46,7 @@
         <h1 data-i18n="drop.title">Drop a PDF here</h1>
         <p data-i18n="drop.text">Pared finds the real page inside a sheet that was exported at the wrong size (a portrait slide on a landscape page, for example), crops to it, and can shrink the file.</p>
         <button class="btn primary" id="pick" type="button" data-i18n="drop.pick">Choose a PDF</button>
+        <p class="drop-more" data-i18n="drop.multi">Choose several to merge them, or to fix them all the same way.</p>
       </div>
     </section>
 
@@ -167,6 +168,18 @@
           <div class="card-h"><span data-i18n="export.title">Export</span></div>
           <p class="warn" id="memWarn" hidden data-i18n="export.memWarn">This is a large file for a phone or tablet. If the export fails, export fewer pages at a time.</p>
           <p class="warn" id="sigWarn" hidden></p>
+          <label class="field" id="outField">
+            <span data-i18n="export.saveAs">Save as</span>
+            <select id="outMode">
+              <option value="one" data-i18n="export.outOne">One PDF</option>
+              <option value="files" data-i18n="export.outFiles">One PDF per file</option>
+              <option value="every" data-i18n="export.outEvery">Separate parts</option>
+            </select>
+          </label>
+          <label class="field" id="everyField" hidden>
+            <span data-i18n="export.everyN">Pages in each part</span>
+            <input type="number" class="num" id="everyN" min="1" step="1" value="1" inputmode="numeric">
+          </label>
           <label class="check"><input type="checkbox" id="compress" checked> <span data-i18n="export.compress">Compress images</span></label>
           <label class="field" id="ppiField">
             <span data-i18n="export.resolution">Image resolution</span>

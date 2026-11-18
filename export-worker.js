@@ -31,7 +31,8 @@ self.onmessage = async (e) => {
       return;
     }
     const r = await processPdf(mupdf, take(e.data), full, progress);
-    self.postMessage({ type: 'done', id, bytes: r.bytes, stats: r.stats }, [r.bytes.buffer]);
+    const parts = r.parts ?? [];
+    self.postMessage({ type: 'done', id, bytes: r.bytes, stats: r.stats, parts }, [r.bytes.buffer, ...parts.map((b) => b.buffer)]);
   } catch (err) {
     self.postMessage({ type: 'error', id, message: String(err?.message || err), memory: isMemoryError(err), code: err?.code });
   }

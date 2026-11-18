@@ -6,6 +6,7 @@ import {
 import { parseRange, formatRange } from './pages.js';
 import { isLargeForDevice, isMemoryError } from './limits.js';
 import { t, ltr, isRtl, lang, locale, setLang, pickLang } from './i18n.js';
+import { makeZip } from './zip.js';
 import { INKS, fontsFor, createPad, imageToSignature, typedSignature, loadFont, fontCss, signaturePng, signaturePreview } from './sign.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdfjs/pdf.worker.min.mjs', import.meta.url).href;
@@ -28,7 +29,7 @@ const el = Object.fromEntries([
   'fname', 'fmeta', 'progress', 'progressBar', 'progressText',
   'detectCard', 'confidence', 'detectText', 'groupSel',
   'boxCard', 'scopeAll', 'scopePage', 'scopeHint', 'orientP', 'orientL', 'chips', 'rSize', 'rMm', 'rRatio',
-  'exportCard', 'memWarn', 'sigWarn', 'strip', 'stripHint', 'pwCard', 'pwText', 'pw', 'keepPw', 'keepPwRow', 'compress', 'ppiField', 'ppi', 'compressHint', 'estimate', 'download', 'saveProgress', 'saveBar', 'saveText',
+  'exportCard', 'memWarn', 'sigWarn', 'strip', 'stripHint', 'pwCard', 'pwText', 'pw', 'keepPw', 'keepPwRow', 'outMode', 'everyField', 'everyN', 'compress', 'ppiField', 'ppi', 'compressHint', 'estimate', 'download', 'saveProgress', 'saveBar', 'saveText',
   'reset', 'error', 'lang', 'version', 'versionLink', 'about',
   'signCard', 'addSign', 'signHint', 'signDlg', 'tabDraw', 'tabType', 'tabUpload', 'paneDraw', 'paneType', 'paneUpload', 'pad', 'sigFile', 'sigPick', 'sigImg',
   'sigName', 'fontChips',
@@ -44,7 +45,7 @@ let session = 0; // bumps on every new file so stale async work can bail out
 el.pick.addEventListener('click', (e) => { e.stopPropagation(); el.file.click(); });
 el.drop.addEventListener('click', () => el.file.click());
 el.drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.file.click(); } });
-el.file.addEventListener('change', () => { if (el.file.files[0]) open(el.file.files[0]); });
+el.file.addEventListener('change', () => { if (el.file.files.length) open([...el.file.files]); });
 for (const t of ['dragenter', 'dragover']) {
   document.addEventListener(t, (e) => { e.preventDefault(); el.drop.classList.add('over'); });
 }
@@ -52,8 +53,8 @@ for (const t of ['dragleave', 'drop']) {
   document.addEventListener(t, (e) => { e.preventDefault(); if (t === 'drop' || e.target === el.drop) el.drop.classList.remove('over'); });
 }
 document.addEventListener('drop', (e) => {
-  const f = [...(e.dataTransfer?.files || [])].find((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
-  if (f) open(f);
+  const pdfs = [...(e.dataTransfer?.files || [])].filter((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
+  if (pdfs.length) open(pdfs);
 });
 el.reset.addEventListener('click', resetAll);
 
@@ -62,7 +63,7 @@ function resetAll() {
   thumbObserver?.disconnect();
   evictObserver?.disconnect();
   thumbQueue.length = 0;
-  state?.pdf?.destroy();
+  for (const d of state?.files ?? []) d.pdf.destroy();
   state = null;
   cancelEstimate();
   estimate = null;
@@ -75,7 +76,9 @@ function resetAll() {
   el.about.hidden = false;
 }
 
-async function open(file, password = null) {
+// Open one or more PDFs as one working document. passwords[k] is for files[k].
+async function open(files, passwords = []) {
+  files = Array.isArray(files) ? files : [files];
   resetAll();
   const my = session;
   el.drop.hidden = true;
@@ -83,17 +86,35 @@ async function open(file, password = null) {
   el.work.hidden = false;
   el.reset.hidden = false;
   for (const k of ['detectCard', 'boxCard', 'signCard', 'exportCard', 'error', 'saveProgress', 'pwCard']) el[k].hidden = true;
-  el.fname.textContent = file.name;
-  el.fmeta.textContent = t('file.reading', { size: fmtBytes(file.size) });
+  const size = files.reduce((t, f) => t + f.size, 0);
+  el.fname.textContent = files.length === 1 ? files[0].name : t('file.many', { n: files.length });
+  el.fname.title = files.map((f) => f.name).join('\n');
+  el.fmeta.textContent = t('file.reading', { size: fmtBytes(size) });
   el.saveText.textContent = '';
 
   try {
-    // pdf.js takes ownership of this buffer (it moves to its worker). The
-    // export re-reads the file instead of keeping a second copy in memory.
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const pdf = await pdfjsLib.getDocument({ data: bytes, password: password ?? undefined, isEvalSupported: false, ...PDFJS_ASSETS }).promise;
-    if (my !== session) return;
-    state = { file, password, pdf, n: pdf.numPages, page: 1, groups: [], groupOf: [], selected: null, lastToggled: null, thumbs: [], order: [] };
+    // pdf.js takes ownership of each buffer (it moves to its worker). The
+    // export re-reads the files instead of keeping second copies in memory.
+    const docs = [];
+    for (let k = 0, offset = 0; k < files.length; k++) {
+      const bytes = new Uint8Array(await files[k].arrayBuffer());
+      let pdf;
+      try {
+        pdf = await pdfjsLib.getDocument({ data: bytes, password: passwords[k] ?? undefined, isEvalSupported: false, ...PDFJS_ASSETS }).promise;
+      } catch (err) {
+        for (const d of docs) d.pdf.destroy();
+        if (my !== session) return;
+        if (err?.name === 'PasswordException') {
+          return askPassword(files, passwords, k, err.code === pdfjsLib.PasswordResponses.INCORRECT_PASSWORD);
+        }
+        throw files.length > 1 ? new Error(`${files[k].name}: ${err?.message || err}`) : err;
+      }
+      if (my !== session) { pdf.destroy(); for (const d of docs) d.pdf.destroy(); return; }
+      docs.push({ file: files[k], password: passwords[k] ?? null, pdf, n: pdf.numPages, offset });
+      offset += pdf.numPages;
+    }
+    const n = docs.reduce((t, d) => t + d.n, 0);
+    state = { files: docs, size, n, page: 1, groups: [], groupOf: [], selected: null, lastToggled: null, thumbs: [], order: [] };
     state.order = Array.from({ length: state.n }, (_, i) => i + 1);
     state.rot = new Int16Array(state.n + 1); // extra clockwise rotation per page
     state.override = new Map(); // page -> its own crop (see cropOf)
@@ -101,16 +122,17 @@ async function open(file, password = null) {
     state.selected = new Uint8Array(state.n + 1).fill(1);
     await collectGroups(my);
     if (my !== session) return;
-    state.meta = await pdf.getMetadata().catch(() => null);
+    state.meta = await docs[0].pdf.getMetadata().catch(() => null);
     if (my !== session) return;
     showStripHint();
     const g0 = state.groups[0];
     showFileMeta();
-    state.large = isLargeForDevice(file.size, {
+    state.large = isLargeForDevice(size, {
       deviceMemory: navigator.deviceMemory, coarsePointer: matchMedia('(pointer: coarse)').matches,
     });
     el.memWarn.hidden = !state.large;
-    el.keepPwRow.hidden = !password;
+    el.keepPwRow.hidden = !docs.some((d) => d.password);
+    setupOutput();
     el.keepPw.checked = true;
     buildThumbs();
     updateSelectionUI();
@@ -119,8 +141,7 @@ async function open(file, password = null) {
   } catch (err) {
     if (my !== session) return;
     console.error(err);
-    if (err?.name === 'PasswordException') askPassword(file, err.code === pdfjsLib.PasswordResponses.INCORRECT_PASSWORD);
-    else showError(t('err.read', { msg: err?.message || err }));
+    showError(t('err.read', { msg: err?.message || err }));
   }
 }
 
@@ -128,20 +149,28 @@ async function open(file, password = null) {
 
 // The password stays in this page's memory: pdf.js gets it for the preview,
 // and the workers for export. It is never stored.
-let pwFor = null, pwWrong = false;
-function askPassword(file, wrong) {
-  pwFor = file;
-  pwWrong = wrong;
-  el.fmeta.textContent = fmtBytes(file.size);
+let pwFor = null;
+function askPassword(files, passwords, k, wrong) {
+  pwFor = { files, passwords, k, wrong };
+  el.fmeta.textContent = fmtBytes(files.reduce((t, f) => t + f.size, 0));
   el.pwCard.hidden = false;
   showPwText();
   el.pw.value = '';
   el.pw.focus();
 }
-function showPwText() { el.pwText.textContent = t(pwWrong ? 'pw.wrong' : 'pw.need'); }
+function showPwText() {
+  const { files, k, wrong } = pwFor;
+  // With several files, say which one is asking.
+  el.pwText.textContent = files.length > 1
+    ? t(wrong ? 'pw.wrongFile' : 'pw.needFile', { name: ltr(files[k].name) })
+    : t(wrong ? 'pw.wrong' : 'pw.need');
+}
 el.pwCard.addEventListener('submit', (e) => {
   e.preventDefault();
-  if (pwFor && el.pw.value) open(pwFor, el.pw.value);
+  if (!pwFor || !el.pw.value) return;
+  const passwords = [...pwFor.passwords];
+  passwords[pwFor.k] = el.pw.value;
+  open(pwFor.files, passwords);
 });
 
 /* ---------- analysis ---------- */
@@ -151,7 +180,7 @@ el.pwCard.addEventListener('submit', (e) => {
 async function collectGroups(my) {
   const byKey = new Map();
   for (let i = 1; i <= state.n; i++) {
-    const page = await state.pdf.getPage(i);
+    const page = await getPage(i);
     if (my !== session) return;
     const vp = page.getViewport({ scale: 1 });
     const key = `${Math.round(vp.width)}x${Math.round(vp.height)}`;
@@ -180,7 +209,7 @@ async function analyse(my) {
     const [g, p] = plan[k];
     el.progressText.textContent = t('progress.analyse', { k: k + 1, n: plan.length });
     el.progressBar.style.width = `${((k + 1) / plan.length) * 100}%`;
-    const page = await state.pdf.getPage(p);
+    const page = await getPage(p);
     const scale = DETECT_PX / Math.max(g.W, g.H);
     const vp = page.getViewport({ scale });
     canvas.width = Math.round(vp.width);
@@ -393,7 +422,7 @@ async function showPage(n) {
 
   const my = session;
   renderTask?.cancel();
-  const page = await state.pdf.getPage(n);
+  const page = await getPage(n);
   if (my !== session || state.page !== n) return;
   const dpr = window.devicePixelRatio || 1;
   const vp = page.getViewport({ scale: fit * dpr });
@@ -517,9 +546,17 @@ function buildThumbs() {
     bar.className = 'tbar';
     const handle = Object.assign(document.createElement('button'), { type: 'button', className: 'tdrag', textContent: '⠿' });
     const num = Object.assign(document.createElement('span'), { className: 'tnum', textContent: p });
+    // With several files, the first page of each says which file starts there.
+    const d = docOf(p);
+    if (state.files.length > 1 && p === d.offset + 1) {
+      const tag = Object.assign(document.createElement('div'), { className: 'tfile', textContent: d.file.name });
+      tag.title = d.file.name;
+      t.filetag = tag; // added after the bar below
+      t.classList.add('filestart');
+    }
     const rotate = Object.assign(document.createElement('button'), { type: 'button', className: 'trot', textContent: '↻' });
     bar.append(handle, num, rotate);
-    t.append(cb, frame, bar);
+    t.append(cb, frame, bar, ...(t.filetag ? [t.filetag] : []));
     frag.append(t);
     state.thumbs[p] = { el: t, cb, clip, canvas, handle, rotate, rendered: false };
   }
@@ -561,7 +598,7 @@ async function pumpThumbs() {
       const p = thumbQueue.shift();
       const g = state.groupOf[p], t = state.thumbs[p];
       if (t.rendered) continue;
-      const page = await state.pdf.getPage(p);
+      const page = await getPage(p);
       if (my !== session) return;
       // Enough pixels for the tile even if the crop box later narrows a bit.
       const scale = ((THUMB_W * 2.5) / g.W) * Math.min(2, window.devicePixelRatio || 1);
@@ -732,7 +769,7 @@ function updateSelectionUI() {
   updateCurrentInclusion();
   el.download.disabled = pages.length === 0;
   scheduleEstimate();
-  el.download.textContent = pages.length === 0 ? t('export.selectOne') : t('export.downloadN', { n: pages.length });
+  showDownloadLabel();
 }
 
 function updateCurrentInclusion() {
@@ -968,7 +1005,7 @@ async function signatureStamps() {
   const stamps = [];
   for (const item of state.signs) {
     if (!state.selected[item.page]) continue;
-    const vp = (await state.pdf.getPage(item.page)).getViewport({ scale: 1 });
+    const vp = (await getPage(item.page)).getViewport({ scale: 1 });
     const b = item.box;
     const [ax, ay] = vp.convertToPdfPoint(b.x0 * vp.width, b.y0 * vp.height);
     const [bx, by] = vp.convertToPdfPoint(b.x1 * vp.width, b.y1 * vp.height);
@@ -1026,14 +1063,14 @@ function cancelEstimate() {
 
 async function runEstimate(key, keep) {
   const my = session;
-  const data = new Uint8Array(await state.file.arrayBuffer());
+  const src = await readSources();
   if (my !== session || estimateKey !== key) return;
   let w = null;
   try {
     // Crop boxes don't change the size noticeably; the page subset does, so
     // only that is sent.
-    const sizes = await oneShot('estimate', data, {
-      keep, password: state.password, removePassword: !el.keepPw.checked, presets: PRESETS.map((ppi) => ({ ppi, quality: QUALITY[ppi] ?? 78 })),
+    const sizes = await oneShot('estimate', src, {
+      keep, removePassword: !el.keepPw.checked, presets: PRESETS.map((ppi) => ({ ppi, quality: QUALITY[ppi] ?? 78 })),
     }, (x) => { w = x; estimateWorker = x; });
     if (estimateWorker !== w || my !== session) return;
     estimate = { key, sizes };
@@ -1048,7 +1085,7 @@ async function runEstimate(key, keep) {
 // Run one job in a worker of its own, thrown away afterwards so its memory
 // goes back to the browser. `bytes` is transferred, not copied. If the caller
 // terminates the worker (onStart hands it over), the promise never settles.
-function oneShot(kind, bytes, opts, onStart) {
+function oneShot(kind, src, opts, onStart) {
   const w = new Worker(new URL('./export-worker.js', import.meta.url), { type: 'module' });
   onStart?.(w);
   return new Promise((resolve, reject) => {
@@ -1056,12 +1093,83 @@ function oneShot(kind, bytes, opts, onStart) {
     // for "ready" before sending the job.
     w.onmessage = (e) => {
       const m = e.data;
-      if (m.type === 'ready') w.postMessage({ id: 0, kind, bytes, opts }, [bytes.buffer]);
+      if (m.type === 'ready') w.postMessage({ id: 0, kind, bytes: src.input, opts: { ...opts, password: src.password } }, src.transfer);
       else if (m.type === 'done') resolve(m.result);
       else if (m.type === 'error') reject(new Error(m.message));
     };
     w.onerror = (e) => reject(new Error(e.message || `${kind} failed`));
   }).finally(() => w.terminate());
+}
+
+/* ---------- several files ---------- */
+
+// The open file a page (1-based, through all files) comes from.
+function docOf(p) { return state.files.find((d) => p > d.offset && p <= d.offset + d.n); }
+function getPage(p) { const d = docOf(p); return d.pdf.getPage(p - d.offset); }
+const baseName = (file) => file.name.replace(/\.pdf$/i, '');
+
+// Fresh copies of the files for a worker: one PDF as bytes, several as a
+// list to merge, each with its password. Transferred, not copied.
+async function readSources() {
+  const datas = await Promise.all(state.files.map(async (d) => new Uint8Array(await d.file.arrayBuffer())));
+  return {
+    input: datas.length === 1 ? datas[0] : state.files.map((d, k) => ({ bytes: datas[k], password: d.password })),
+    password: state.files[0].password,
+    transfer: datas.map((b) => b.buffer),
+  };
+}
+
+/* ---------- save as: one PDF, one per file, or parts ---------- */
+
+el.outMode.addEventListener('change', () => { el.everyField.hidden = el.outMode.value !== 'every'; showDownloadLabel(); });
+el.everyN.addEventListener('input', showDownloadLabel);
+
+function setupOutput() {
+  const several = state.files.length > 1;
+  const perFile = el.outMode.querySelector('option[value="files"]');
+  perFile.disabled = perFile.hidden = !several;
+  el.outMode.value = several ? 'files' : 'one';
+  el.everyField.hidden = true;
+  el.everyN.value = '1';
+}
+
+// Groups of output pages (0-based positions in the exported order) and a
+// name for each, or null for a single PDF.
+function outputGroups() {
+  const order = keepList();
+  let groups = null;
+  if (el.outMode.value === 'files' && state.files.length > 1) {
+    const byFile = new Map();
+    order.forEach((src, i) => {
+      const d = docOf(src + 1);
+      if (!byFile.has(d)) byFile.set(d, []);
+      byFile.get(d).push(i);
+    });
+    groups = [...byFile].map(([d, pages]) => ({ name: baseName(d.file), pages }));
+  } else if (el.outMode.value === 'every') {
+    const n = Math.max(1, Math.floor(Number(el.everyN.value) || 1));
+    const base = baseName(state.files[0].file);
+    groups = [];
+    for (let i = 0; i < order.length; i += n) {
+      const pages = order.slice(i, i + n).map((_, k) => i + k);
+      groups.push({ name: pages.length === 1 ? `${base}_p${i + 1}` : `${base}_p${i + 1}-${i + pages.length}`, pages });
+    }
+  }
+  // Names must differ inside the ZIP.
+  const seen = new Map();
+  for (const g of groups ?? []) {
+    const k = seen.get(g.name) ?? 0;
+    seen.set(g.name, k + 1);
+    if (k) g.name += `_${k + 1}`;
+  }
+  return groups && groups.length > 1 ? groups : null;
+}
+
+function showDownloadLabel() {
+  const pages = selectedPages().length;
+  if (!pages) { el.download.textContent = t('export.selectOne'); return; }
+  const groups = outputGroups();
+  el.download.textContent = groups ? t('export.downloadZip', { n: groups.length }) : t('export.downloadN', { n: pages });
 }
 
 /* ---------- hidden details (metadata) ---------- */
@@ -1091,12 +1199,17 @@ function showStripHint() {
 // say so up front. pdf.js can tell there are signature fields but not whether
 // they're signed, so only then is mupdf asked to look.
 async function checkSignatures(my) {
-  const fields = await state.pdf.getFieldObjects().catch(() => null);
-  if (my !== session || !fields || !Object.values(fields).flat().some((f) => f.type === 'signature')) return;
-  const data = new Uint8Array(await state.file.arrayBuffer());
+  let any = false;
+  for (const d of state.files) {
+    const fields = await d.pdf.getFieldObjects().catch(() => null);
+    if (my !== session) return;
+    any ||= !!fields && Object.values(fields).flat().some((f) => f.type === 'signature');
+  }
+  if (!any) return;
+  const src = await readSources();
   if (my !== session) return;
   try {
-    const { signed } = await oneShot('inspect', data, { password: state.password });
+    const { signed } = await oneShot('inspect', src, {});
     if (my !== session) return;
     state.signed = signed;
     showSigWarn();
@@ -1121,7 +1234,7 @@ function showEstimate() {
   if (!known) { el.estimate.textContent = t('export.estimating'); return; }
   const size = el.compress.checked ? known.presets[PRESETS.indexOf(Number(el.ppi.value))] : known.none;
   el.estimate.replaceChildren(t('export.estimate'), Object.assign(document.createElement('strong'), { textContent: ltr(`≈ ${fmtBytes(size)}`) }),
-    t('export.estimateNow', { size: fmtBytes(state.file.size) }));
+    t('export.estimateNow', { size: fmtBytes(state.size) }));
 }
 
 let worker = null, workerReady = null;
@@ -1182,7 +1295,7 @@ async function exportPdf() {
     for (let i = 1; i <= state.n; i++) {
       const b = cropOf(i).box;
       if (!state.selected[i] || (b.x0 === 0 && b.y0 === 0 && b.x1 === 1 && b.y1 === 1)) { boxes.push(null); continue; }
-      const vp = (await state.pdf.getPage(i)).getViewport({ scale: 1 });
+      const vp = (await getPage(i)).getViewport({ scale: 1 });
       const [ax, ay] = vp.convertToPdfPoint(b.x0 * vp.width, b.y0 * vp.height);
       const [bx, by] = vp.convertToPdfPoint(b.x1 * vp.width, b.y1 * vp.height);
       boxes.push([Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)].map((v) => Math.round(v * 1000) / 1000));
@@ -1195,7 +1308,8 @@ async function exportPdf() {
     await warmWorker();
     if (my !== session) return;
     const id = ++jobId;
-    const data = new Uint8Array(await state.file.arrayBuffer());
+    const src = await readSources();
+    const groups = outputGroups();
     const result = await new Promise((resolve, reject) => {
       pending.set(id, {
         resolve, reject,
@@ -1206,31 +1320,44 @@ async function exportPdf() {
             el.saveBar.style.width = `${(m.done / m.total) * 100}%`;
             say(t('export.images', { done: m.done, total: m.total }));
           } else {
-            say(t(['open', 'pages', 'scan', 'save'].includes(m.phase) ? `export.${m.phase}` : 'export.working'));
+            say(m.phase === 'split' ? t('export.split', { done: m.done + 1, total: m.total })
+              : t(['open', 'pages', 'scan', 'save'].includes(m.phase) ? `export.${m.phase}` : 'export.working'));
           }
         },
       });
       // Transferred, not copied: the worker owns the only copy from here on.
-      worker.postMessage({ id, bytes: data, opts: { boxes, keep: keepList(),
+      worker.postMessage({ id, bytes: src.input, opts: { boxes, keep: keepList(),
         rotate: Array.from(state.rot.subarray(1)), compress, stamps, stripMetadata: el.strip.checked,
-        password: state.password, removePassword: !el.keepPw.checked } }, [data.buffer]);
+        password: src.password, removePassword: !el.keepPw.checked, split: groups?.map((g) => g.pages) } }, src.transfer);
     });
     retireWorker();
     if (my !== session) return;
 
-    const base = state.file.name.replace(/\.pdf$/i, '');
-    const name = `${base}${compress ? `_${ppi}ppi` : '_cropped'}.pdf`;
-    const url = URL.createObjectURL(new Blob([result.bytes], { type: 'application/pdf' }));
+    const suffix = compress ? `_${ppi}ppi` : '_cropped';
+    let name, blob, after;
+    if (groups) {
+      // Several PDFs: one ZIP download, since browsers block bursts of them.
+      const zip = makeZip(groups.map((g, k) => ({ name: `${g.name}${suffix}.pdf`, bytes: result.parts[k] })));
+      name = `${baseName(state.files[0].file)}${suffix}.zip`;
+      blob = new Blob([zip], { type: 'application/zip' });
+      after = result.parts.reduce((t, b) => t + b.length, 0);
+    } else {
+      name = `${baseName(state.files[0].file)}${suffix}.pdf`;
+      blob = new Blob([result.bytes], { type: 'application/pdf' });
+      after = result.bytes.length;
+    }
+    const url = URL.createObjectURL(blob);
     const a = Object.assign(document.createElement('a'), { href: url, download: name });
     document.body.append(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
     el.saveProgress.hidden = true;
-    const before = state.file.size, after = result.bytes.length;
+    const before = state.size;
     const line = document.createElement('div');
     line.className = 'result';
-    line.append(t('export.saved', { name: ltr(name), before: fmtBytes(before) }));
+    line.append(groups ? t('export.savedMany', { name: ltr(name), n: groups.length, before: fmtBytes(before) })
+      : t('export.saved', { name: ltr(name), before: fmtBytes(before) }));
     const strong = document.createElement('strong');
     strong.textContent = fmtBytes(after);
     line.append(strong, after < before ? t('export.smaller', { pct: Math.min(99, Math.floor((1 - after / before) * 100)) }) : '');
@@ -1262,7 +1389,7 @@ if ('serviceWorker' in navigator) {
 // "Open with" on an installed app (File Handling API).
 if ('launchQueue' in window) {
   window.launchQueue.setConsumer(async ({ files }) => {
-    if (files?.length) open(await files[0].getFile());
+    if (files?.length) open(await Promise.all(files.map((h) => h.getFile())));
   });
 }
 
@@ -1330,7 +1457,7 @@ function showVersion() {
 
 function showFileMeta() {
   const g0 = state.groups[0];
-  el.fmeta.textContent = t('file.meta', { size: fmtBytes(state.file.size), n: state.n, sheet: fmtSheet(g0.W, g0.H) });
+  el.fmeta.textContent = t('file.meta', { size: fmtBytes(state.size), n: state.n, sheet: fmtSheet(g0.W, g0.H) });
 }
 
 function labelThumbs() {

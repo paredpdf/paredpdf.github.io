@@ -811,3 +811,85 @@ test('asks for the password in Arabic', async ({ page }) => {
   await unlock(page, '/?lang=ar');
   await expect(page.locator('#pwText')).toContainText('محمي بكلمة مرور');
 });
+
+/* ---------- several files: merge, one per file, split ---------- */
+
+// Reads the stored (uncompressed) ZIPs Pared writes.
+function unzip(buf) {
+  const out = [], dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  for (let o = 0; dv.getUint32(o, true) === 0x04034b50;) {
+    const size = dv.getUint32(o + 18, true), n = dv.getUint16(o + 26, true), x = dv.getUint16(o + 28, true);
+    const start = o + 30 + n + x;
+    out.push({ name: new TextDecoder().decode(buf.subarray(o + 30, o + 30 + n)), bytes: buf.subarray(start, start + size) });
+    o = start + size;
+  }
+  return out;
+}
+
+const PHOTOS = path.join(FIXTURES, 'photos.pdf');
+async function loadTwo(page, url = '/') {
+  await page.goto(url);
+  await page.setInputFiles('#file', [PDF, PHOTOS]);
+  await expect(page.locator('#exportCard')).toBeVisible({ timeout: 60_000 });
+}
+const pageCount = (bytes) => new mupdf.PDFDocument(bytes).countPages();
+
+test('opens several PDFs as one, and saves one PDF per file', async ({ page }) => {
+  await loadTwo(page);
+  await expect(page.locator('#fname')).toHaveText('2 files');
+  await expect(page.locator('#selCount')).toHaveText('9 of 9 selected');
+  await expect(page.locator('.tfile')).toHaveText(['letterboxed.pdf', 'photos.pdf']);
+  await expect(page.locator('#outMode')).toHaveValue('files');
+  await expect(page.locator('#download')).toHaveText('Download ZIP · 2 PDFs');
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#download')]);
+  expect(dl.suggestedFilename()).toBe('letterboxed_200ppi.zip');
+  const parts = unzip(fs.readFileSync(await dl.path()));
+  expect(parts.map((p) => p.name)).toEqual(['letterboxed_200ppi.pdf', 'photos_200ppi.pdf']);
+  expect(parts.map((p) => pageCount(p.bytes))).toEqual([6, 3]);
+  await expect(page.locator('.result')).toContainText('(2 PDFs)');
+});
+
+test('merges several PDFs into one, in the chosen page order', async ({ page }) => {
+  await loadTwo(page);
+  await page.selectOption('#outMode', 'one');
+  await expect(page.locator('#download')).toHaveText('Download PDF · 9 pages');
+  // Put the photos file's first page first.
+  await page.locator('.thumb[data-p="7"] .tdrag').focus();
+  for (let k = 0; k < 6; k++) await page.keyboard.press('ArrowLeft');
+  expect(await gridOrder(page)).toEqual([7, 1, 2, 3, 4, 5, 6, 8, 9]);
+  const bytes = await download(page);
+  expect(pageCount(bytes)).toBe(9);
+  // The first page is the photos page, then the 334.7 pt wide slides.
+  const widths = summarise(bytes).pages.map(([x0, , x1]) => Math.round(x1 - x0));
+  expect(widths[0]).not.toBe(335);
+  expect(widths.slice(1, 7)).toEqual([335, 335, 335, 335, 335, 335]);
+});
+
+test('splits into parts of a chosen size', async ({ page }) => {
+  await load(page);
+  // Only one file, so "one PDF per file" isn't offered.
+  await expect(page.locator('#outMode option[value="files"]')).toHaveAttribute('disabled', '');
+  await page.selectOption('#outMode', 'every');
+  await page.fill('#everyN', '4');
+  await expect(page.locator('#download')).toHaveText('Download ZIP · 2 PDFs');
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#download')]);
+  const parts = unzip(fs.readFileSync(await dl.path()));
+  expect(parts.map((p) => p.name)).toEqual(['letterboxed_p1-4_200ppi.pdf', 'letterboxed_p5-6_200ppi.pdf']);
+  expect(parts.map((p) => pageCount(p.bytes))).toEqual([4, 2]);
+  expect(parts.map((p) => summarise(p.bytes).order)).toEqual([[1, 2, 3, 4], [5, 6]]);
+});
+
+test('asks for the password of the protected file among several', async ({ page }) => {
+  await page.goto('/');
+  await page.setInputFiles('#file', [PHOTOS, path.join(FIXTURES, 'locked.pdf')]);
+  await expect(page.locator('#pwText')).toContainText('“locked.pdf” is protected');
+  await page.fill('#pw', 'open');
+  await page.press('#pw', 'Enter');
+  await expect(page.locator('#exportCard')).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('#selCount')).toHaveText('6 of 6 selected');
+  await page.selectOption('#outMode', 'one');
+  const out = new mupdf.PDFDocument(await download(page));
+  expect(out.needsPassword()).toBe(true);
+  expect(out.authenticatePassword('open')).toBeTruthy();
+  expect(out.countPages()).toBe(6);
+});

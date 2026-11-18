@@ -4,6 +4,7 @@ Fixes PDFs exported at the wrong page size, such as a 9:16 portrait slide placed
 - detects the real page,
 - crops every page to it,
 - lets you choose which pages to keep, reorder and rotate them,
+- opens several PDFs at once, to merge them or fix them all the same way, and can split the result,
 - can add a typed, drawn or photographed signature,
 - can compress the images.
 
@@ -66,10 +67,12 @@ npm run test:e2e -- --project=desktop --project=firefox   # some of them
   - Soft masks (transparency) are resized along with their image.
   - Saves with garbage collection, so skipped pages' images are actually removed.
   - **Passwords:** a protected PDF asks for its password, which stays in the page's memory and goes to pdf.js and the export workers. The export keeps the original protection (both passwords and the permissions) unless you choose to remove it.
+  - **Several files:** given several PDFs, the engine grafts them into one document, so crops, page order, rotation and signatures work across all of them. `split` cuts the finished file into groups of pages: one per source file, or every N pages.
   - **Hidden details:** with `stripMetadata`, removes the document info except the title, XMP metadata wherever it hangs (document, pages, images), editing programs' private data (`PieceInfo`), and EXIF, XMP, IPTC and comments inside JPEG images, without re-encoding them. The JPEG colour profile and Adobe colour marker are kept. On by default; the page lists what the PDF carries.
   - **Existing signatures:** `inspectPdf` counts signed signature fields. Exporting rewrites the file, which breaks a digital signature, so the page warns first. pdf.js spots signature fields cheaply, and mupdf is only asked when there are some, since pdf.js can't tell signed from empty.
   - **Size estimate:** `estimateSizes` predicts the exported size at each resolution before you export. The uncompressed size is a real save, so it's exact. For each resolution it encodes the three largest images that would be shrunk and assumes the rest compress to the same bytes per pixel. It runs in its own short-lived worker after analysis and when the page selection changes, and is skipped for files too large for the device.
 - `sign.js` handles visual signatures: typing a name in a handwriting font (Dancing Script, Caveat, Gveret Levin for Hebrew, Aref Ruqaa for Arabic; only styles that can write the typed letters are offered), a drawing pad (smoothed strokes, stored as points so they redraw sharp at any size), and turning a photo or scan into transparent ink, with the paper level taken from the image itself so grey phone photos come out clean. On export each placed signature is rendered as a PNG for 300 ppi at its size on the page, and the engine draws it on top of the page content. It's a picture of a signature, not a digital signature, and the page says so.
+- `zip.js` writes the ZIP that several output PDFs come in (stored, not recompressed; UTF-8 names).
 - `sw.js` is the service worker that makes the site work offline after the first visit. App files are network-first (so deploys show up on the next load), and `vendor/` is cache-first under a cache name that includes the library versions.
 - `export-worker.js` runs the engine off the main thread and uses the browser's JPEG encoder (4:2:0 chroma, much smaller than mupdf's 4:4:4).
 
