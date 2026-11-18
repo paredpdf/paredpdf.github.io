@@ -5,12 +5,12 @@
   --ink: #1d1c1a;
   --ink-2: #5f5b54;
   --line: #e2ded6;
-  --accent: #d2551f;
+  --accent: #bd4815; /* 4.5:1 or better with white text, and as text on the page */
   --accent-ink: #ffffff;
   --accent-soft: #fbe7dc;
-  --ok: #2f7a4a;
+  --ok: #2b7044;
   --ok-soft: #e1f1e6;
-  --warn: #93630c;
+  --warn: #8a5c0b;
   --warn-soft: #f8edd3;
   --stage: #dcd8d0;
   --shade: rgba(28, 26, 22, 0.55);

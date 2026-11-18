@@ -11,6 +11,7 @@
     "browsers": "PLAYWRIGHT_BROWSERS_PATH=.browsers playwright install"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
     "@fontsource/aref-ruqaa": "5.3.0",
     "@fontsource/caveat": "5.3.0",
     "@fontsource/dancing-script": "5.3.0",

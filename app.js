@@ -766,7 +766,7 @@ function renderFontChips() {
     b.style.color = INKS[ink];
     b.dir = 'auto';
     b.title = f.name;
-    b.setAttribute('aria-label', f.name);
+    b.setAttribute('aria-label', `${text}, ${f.name}`); // starts with what's shown, then the style
     b.setAttribute('aria-pressed', String(f.id === typedFont));
     b.addEventListener('click', () => { typedFont = f.id; renderFontChips(); });
     loadFont(f.id, text).catch(() => {});
@@ -849,7 +849,7 @@ function renderSigns() {
     const node = document.createElement('div');
     node.className = 'sig';
     node.tabIndex = 0;
-    node.setAttribute('role', 'img');
+    node.setAttribute('role', 'group'); // not img: an image can't hold the × button
     node.setAttribute('aria-label', t('sign.itemAria'));
     const img = document.createElement('img');
     img.alt = '';
