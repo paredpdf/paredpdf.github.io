@@ -3,8 +3,10 @@
 Fixes PDFs exported at the wrong page size, such as a 9:16 portrait slide placed in the middle of an A4 landscape page. Pared:
 - detects the real page,
 - crops every page to it,
-- lets you choose which pages to keep,
+- lets you choose which pages to keep, reorder and rotate them,
 - can compress the images.
+
+The interface is in English and Hebrew.
 
 Everything runs in the browser: the PDF is never uploaded.
 
@@ -33,6 +35,7 @@ The tests use Node's built-in test runner and cover page detection (`detect.js`)
   - Assumes the real page is centred, so the empty bands on two sides tell it which way to crop.
   - Picks the smallest common aspect ratio that still contains all the content.
 - `pages.js` parses and formats page ranges such as `1-5, 8, 10-`.
+- `i18n.js` holds the interface text in English and Hebrew. Hebrew switches the page to right to left: thumbnails run right to left, and the arrow keys and drag-to-reorder follow. The preview and its crop handles keep their physical sides. The language comes from `?lang=`, then the button in the header (remembered on this device), then the browser's language. Sizes, file names and measurements are wrapped in bidi isolates so they stay in one piece inside Hebrew sentences.
 - `app.js` handles the UI: preview, draggable crop box, orientation switch, ratio presets, page thumbnails and selection, and the export controls. It uses pdf.js for rendering.
 - `pdf-core.js` is the export engine, built on mupdf.js. It runs in the browser worker and in Node (handy for tests).
   - Sets the page boxes and keeps only the selected pages.
@@ -61,5 +64,4 @@ AGPL-3.0 (see `LICENSE`), matching mupdf.js, which Pared uses for export.
 
 ## Next
 
-- Hebrew (right-to-left) interface.
 - Testing on real phones, including iOS Safari.

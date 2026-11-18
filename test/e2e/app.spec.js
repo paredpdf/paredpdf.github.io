@@ -6,8 +6,8 @@ import { FIXTURES } from './make-fixtures.js';
 
 const PDF = path.join(FIXTURES, 'letterboxed.pdf');
 
-async function load(page, file = PDF) {
-  await page.goto('/');
+async function load(page, file = PDF, url = '/') {
+  await page.goto(url);
   await page.setInputFiles('#file', file);
   await expect(page.locator('#exportCard')).toBeVisible({ timeout: 60_000 });
 }
@@ -358,4 +358,89 @@ test('changing the shared crop leaves pages with their own crop alone', async ({
   await page.click('#chips .chip:text-is("1:1")');
   const { pages } = summarise(await download(page));
   expect(pages.map((b) => Math.round(b[2] - b[0]))).toEqual([595, 335, 595, 595, 595, 595]);
+});
+
+/* ---------- Hebrew (right to left) ---------- */
+
+const HE = (page, file = PDF) => load(page, file, '/?lang=he');
+
+test('shows the interface in Hebrew, right to left', async ({ page }) => {
+  await page.goto('/?lang=he');
+  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'he');
+  await expect(page.locator('#drop h1')).toHaveText('גררו לכאן קובץ PDF');
+  await expect(page.locator('#lang')).toHaveText('English');
+  await page.setInputFiles('#file', PDF);
+  await expect(page.locator('#exportCard')).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('#confidence')).toHaveText('מדויק');
+  await expect(page.locator('#detectText')).toContainText('ממורכז על גיליון');
+  await expect(page.locator('#selCount')).toHaveText('6 מתוך 6 נבחרו');
+  await expect(page.locator('#download')).toHaveText('הורדת PDF · 6 עמודים');
+  await expect(page.locator('#pageLabel')).toHaveText('עמוד 1 מתוך 6');
+  // Measurements stay in one left-to-right piece.
+  expect(await page.locator('#rSize').textContent()).toBe('\u2066334.7 × 595 pt\u2069');
+  // The preview's crop handles keep their physical sides.
+  await expect(page.locator('#stageWrap')).toHaveAttribute('dir', 'ltr');
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test('switches language with a loaded file, and remembers the choice', async ({ page }) => {
+  await load(page);
+  await expect(page.locator('#selCount')).toHaveText('6 of 6 selected');
+  await page.click('#lang');
+  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+  await expect(page.locator('#selCount')).toHaveText('6 מתוך 6 נבחרו');
+  await expect(page.locator('#confidence')).toHaveText('מדויק');
+  await expect(page.locator('#fmeta')).toContainText('6 עמודים · \u2066A4\u2069 לרוחב');
+  await expect(page.locator('.thumb[data-p="2"] .trot')).toHaveAttribute('aria-label', 'סיבוב עמוד 2 עם כיוון השעון');
+  await expect(page.locator('#compressHint')).toContainText('JPEG');
+  await expect(page.locator('#estimate')).toContainText('גודל משוער', { timeout: 30_000 });
+
+  await page.reload();
+  await expect(page.locator('#drop h1')).toHaveText('גררו לכאן קובץ PDF');
+  await page.click('#lang');
+  await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
+  await expect(page.locator('#drop h1')).toHaveText('Drop a PDF here');
+});
+
+test('in Hebrew, the left arrow moves pages forward', async ({ page }) => {
+  await HE(page);
+  await page.locator('.thumb[data-p="1"] .tdrag').focus();
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowLeft');
+  expect(await gridOrder(page)).toEqual([2, 3, 1, 4, 5, 6]);
+  await page.keyboard.press('ArrowRight');
+  expect(await gridOrder(page)).toEqual([2, 1, 3, 4, 5, 6]);
+  await expect(page.locator('#pageLabel')).toHaveText('עמוד 1 מתוך 6 · עכשיו במקום 2');
+
+  // The pager follows the same direction.
+  await page.click('.thumb[data-p="2"] .tclip');
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.locator('#pageLabel')).toHaveText('עמוד 1 מתוך 6 · עכשיו במקום 2');
+  const { order } = summarise(await download(page));
+  expect(order).toEqual([2, 1, 3, 4, 5, 6]);
+  await expect(page.locator('.result')).toContainText('נשמר');
+});
+
+test('in Hebrew, dropping on the right half of a thumbnail puts the page before it', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'mouse drag; touch uses the handle');
+  await HE(page);
+  const from = await page.locator('.thumb[data-p="6"] .tclip').boundingBox();
+  const to = await page.locator('.thumb[data-p="1"] .tclip').boundingBox();
+  const second = await page.locator('.thumb[data-p="2"] .tclip').boundingBox();
+  expect(to.x).toBeGreaterThan(second.x); // pages run right to left
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(to.x + to.width - 5, to.y + to.height / 2, { steps: 10 });
+  await page.mouse.up();
+  expect(await gridOrder(page)).toEqual([6, 1, 2, 3, 4, 5]);
+});
+
+test('explains a bad page range in Hebrew', async ({ page }) => {
+  await HE(page);
+  await page.fill('#range', '5-2');
+  await page.press('#range', 'Enter');
+  await expect(page.locator('#rangeErr')).toHaveText('"5-2" הפוך. התכוונתם ל־2-5?');
 });

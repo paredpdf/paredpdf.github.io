@@ -44,6 +44,13 @@ body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font); min
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 18px; letter-spacing: -0.01em; }
 .tag { margin: 0; color: var(--ink-2); font-size: 14px; }
 .tag strong { color: var(--ink); font-weight: 600; }
+.lang { margin-inline-start: auto; padding: 6px 10px; font-size: 14px; }
+@media (max-width: 700px) {
+  .lang { order: 2; }
+  .tag { order: 3; flex-basis: 100%; }
+}
+/* ‹ and › point the way the pages go, which is leftwards in Hebrew. */
+[dir="rtl"] .pager .btn.icon { transform: scaleX(-1); }
 
 main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 
@@ -97,7 +104,7 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 
 .pager { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 .pager #pageLabel { min-width: 110px; text-align: center; font-variant-numeric: tabular-nums; color: var(--ink-2); }
-.toggle { margin-left: auto; display: flex; gap: 6px; align-items: center; color: var(--ink-2); font-size: 14px; cursor: pointer; }
+.toggle { margin-inline-start: auto; display: flex; gap: 6px; align-items: center; color: var(--ink-2); font-size: 14px; cursor: pointer; }
 
 /* Panel */
 .panel { display: flex; flex-direction: column; gap: 14px; }
@@ -154,7 +161,7 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 .pages-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
 .pages-h h2 { font-size: 16px; margin: 0; }
 .selcount { color: var(--ink-2); font-size: 14px; font-variant-numeric: tabular-nums; }
-.pages-tools { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.pages-tools { margin-inline-start: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .range { font: inherit; font-size: 14px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); width: 190px; }
 .range:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
 .range.bad { border-color: var(--warn); }
@@ -165,7 +172,7 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 .tclip canvas { position: absolute; display: block; }
 .thumb.cur .tclip { box-shadow: 0 0 0 2px var(--accent); }
 .thumb.off .tclip { opacity: .35; }
-.thumb input { position: absolute; top: 4px; left: 8px; width: 18px; height: 18px; margin: 0; accent-color: var(--accent); cursor: pointer; z-index: 1; }
+.thumb input { position: absolute; top: 4px; inset-inline-start: 8px; width: 18px; height: 18px; margin: 0; accent-color: var(--accent); cursor: pointer; z-index: 1; }
 .tnum { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .thumb.off .tnum { text-decoration: line-through; }
 
@@ -183,7 +190,7 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 /* Reordering */
 .tframe { display: grid; place-items: center; }
 .tbar { display: flex; align-items: center; gap: 4px; }
-.tbar .trot { margin-left: auto; }
+.tbar .trot { margin-inline-start: auto; }
 .tdrag, .trot { font: inherit; font-size: 14px; line-height: 1; padding: 3px 4px; border: 0; border-radius: 4px; background: transparent; color: var(--ink-2); cursor: pointer; }
 .tdrag { cursor: grab; touch-action: none; }
 .tdrag:hover, .tdrag:focus-visible, .trot:hover, .trot:focus-visible { background: var(--surface-2); color: var(--ink); }

@@ -5,6 +5,7 @@ import {
 } from './detect.js';
 import { parseRange, formatRange } from './pages.js';
 import { isLargeForDevice, isMemoryError } from './limits.js';
+import { t, ltr, isRtl, lang, setLang, pickLang } from './i18n.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdfjs/pdf.worker.min.mjs', import.meta.url).href;
 const PDFJS_ASSETS = {
@@ -27,7 +28,7 @@ const el = Object.fromEntries([
   'detectCard', 'confidence', 'detectText', 'groupSel',
   'boxCard', 'scopeAll', 'scopePage', 'scopeHint', 'orientP', 'orientL', 'chips', 'rSize', 'rMm', 'rRatio',
   'exportCard', 'memWarn', 'compress', 'ppiField', 'ppi', 'compressHint', 'estimate', 'download', 'saveProgress', 'saveBar', 'saveText',
-  'reset', 'error',
+  'reset', 'error', 'lang',
 ].map((id) => [id, $(id)]));
 
 let state = null;
@@ -77,7 +78,7 @@ async function open(file) {
   el.reset.hidden = false;
   for (const k of ['detectCard', 'boxCard', 'exportCard', 'error', 'saveProgress']) el[k].hidden = true;
   el.fname.textContent = file.name;
-  el.fmeta.textContent = `${fmtBytes(file.size)} · reading…`;
+  el.fmeta.textContent = t('file.reading', { size: fmtBytes(file.size) });
   el.saveText.textContent = '';
 
   try {
@@ -94,7 +95,7 @@ async function open(file) {
     await collectGroups(my);
     if (my !== session) return;
     const g0 = state.groups[0];
-    el.fmeta.textContent = `${fmtBytes(file.size)} · ${state.n} page${state.n > 1 ? 's' : ''} · ${fmtSheet(g0.W, g0.H)}`;
+    showFileMeta();
     state.large = isLargeForDevice(file.size, {
       deviceMemory: navigator.deviceMemory, coarsePointer: matchMedia('(pointer: coarse)').matches,
     });
@@ -106,9 +107,7 @@ async function open(file) {
   } catch (err) {
     if (my !== session) return;
     console.error(err);
-    showError(err?.name === 'PasswordException'
-      ? 'This PDF is password-protected. Remove the password and try again.'
-      : `Couldn't read this PDF: ${err?.message || err}`);
+    showError(err?.name === 'PasswordException' ? t('err.password') : t('err.read', { msg: err?.message || err }));
   }
 }
 
@@ -146,7 +145,7 @@ async function analyse(my) {
 
   for (let k = 0; k < plan.length; k++) {
     const [g, p] = plan[k];
-    el.progressText.textContent = `Looking for the real page… ${k + 1} / ${plan.length}`;
+    el.progressText.textContent = t('progress.analyse', { k: k + 1, n: plan.length });
     el.progressBar.style.width = `${((k + 1) / plan.length) * 100}%`;
     const page = await state.pdf.getPage(p);
     const scale = DETECT_PX / Math.max(g.W, g.H);
@@ -261,27 +260,25 @@ function refreshPanel() {
 
   const d = g.detected;
   el.confidence.className = `badge ${d.confidence}`;
-  el.confidence.textContent = { exact: 'Exact', high: 'Confident' }[d.confidence] || 'Best guess';
+  el.confidence.textContent = t({ exact: 'detect.exact', high: 'detect.high' }[d.confidence] || 'detect.guess');
   const sheet = fmtSheet(g.W, g.H);
   const dw = (d.box.x1 - d.box.x0) * g.W, dh = (d.box.y1 - d.box.y0) * g.H;
-  if (d.reason === 'blank') el.detectText.textContent = 'These pages look blank, so there is nothing to detect.';
-  else if (d.reason === 'fills-sheet') el.detectText.textContent = `The content already fills the ${sheet} sheet. It doesn't look letterboxed.`;
+  if (d.reason === 'blank') el.detectText.textContent = t('detect.blank');
+  else if (d.reason === 'fills-sheet') el.detectText.textContent = t('detect.fills', { sheet });
   else {
-    const shape = d.ratio ? `${d.ratio.label} ${dw < dh ? 'portrait' : 'landscape'}` : `${fmtPt(dw)} × ${fmtPt(dh)} pt`;
-    if (d.confidence === 'exact') {
-      el.detectText.textContent = `${article(shape)} ${shape} page${d.centred ? ', centred' : ''} on the ${sheet} sheet. `
-        + 'The PDF marks this outline itself, so it\'s exact.';
-    } else {
-      el.detectText.textContent = `${article(shape)} ${shape} page, centred on the ${sheet} sheet.` +
-        (d.confidence === 'high' ? '' : ' Check the preview and adjust if needed.');
-    }
+    const shape = d.ratio
+      ? t('detect.shape', { label: ltr(d.ratio.label), orient: t(dw < dh ? 'sheet.portrait' : 'sheet.landscape') })
+      : ltr(`${fmtPt(dw)} × ${fmtPt(dh)} pt`);
+    el.detectText.textContent = t('detect.found', {
+      shape, sheet, centred: d.centred, exact: d.confidence === 'exact', sure: d.confidence === 'high',
+    });
   }
 
   el.groupSel.hidden = state.groups.length < 2;
   if (state.groups.length > 1) {
     el.groupSel.replaceChildren(...state.groups.map((gg) => {
-      const b = chip(`${fmtPt(gg.W)}×${fmtPt(gg.H)} · ${gg.pages.length}p`, gg === g, () => showPage(gg.pages[0]));
-      b.title = 'Pages of this sheet size share one crop box';
+      const b = chip(t('detect.groupChip', { size: ltr(`${fmtPt(gg.W)}×${fmtPt(gg.H)}`), n: gg.pages.length }), gg === g, () => showPage(gg.pages[0]));
+      b.title = t('detect.groupTitle');
       return b;
     }));
   }
@@ -289,27 +286,25 @@ function refreshPanel() {
   const own = state.override.has(state.page);
   el.scopeAll.setAttribute('aria-pressed', String(!own));
   el.scopePage.setAttribute('aria-pressed', String(own));
-  el.scopeAll.textContent = state.groups.length > 1 ? 'Pages this size' : 'All pages';
+  el.scopeAll.textContent = t(state.groups.length > 1 ? 'box.scopeSize' : 'box.scopeAll');
   const owners = g.pages.filter((p) => state.override.has(p)).length;
   el.scopeHint.hidden = !owners;
-  el.scopeHint.textContent = own
-    ? `Only page ${state.page} uses this crop. The other pages keep the shared one.`
-    : owners === 1 ? '1 page has its own crop.' : `${owners} pages have their own crop.`;
+  el.scopeHint.textContent = own ? t('box.ownHint', { p: state.page }) : t('box.othersHint', { n: owners });
 
   el.orientP.setAttribute('aria-pressed', String(c.orient === 'portrait'));
   el.orientL.setAttribute('aria-pressed', String(c.orient === 'landscape'));
 
-  const opts = [['auto', d.ratio ? `Auto (${d.ratio.label})` : 'Auto']];
+  const opts = [['auto', d.ratio ? t('box.autoWith', { label: ltr(d.ratio.label) }) : t('box.auto')]];
   for (const rt of ratiosFor(c.orient)) opts.push([rt.id, rt.label]);
-  opts.push(['content', 'Fit content'], ['full', 'Whole sheet']);
-  if (c.mode === 'custom') opts.push(['custom', 'Custom']);
+  opts.push(['content', t('box.fitContent')], ['full', t('box.wholeSheet')]);
+  if (c.mode === 'custom') opts.push(['custom', t('box.custom')]);
   el.chips.replaceChildren(...opts.map(([id, label]) => chip(label, c.mode === id, () => setMode(c, id))));
 
   const w = (c.box.x1 - c.box.x0) * g.W, h = (c.box.y1 - c.box.y0) * g.H;
-  el.rSize.textContent = `${fmtPt(w)} × ${fmtPt(h)} pt`;
-  el.rMm.textContent = `${fmtMm(w)} × ${fmtMm(h)} mm`;
+  el.rSize.textContent = ltr(`${fmtPt(w)} × ${fmtPt(h)} pt`);
+  el.rMm.textContent = ltr(`${fmtMm(w)} × ${fmtMm(h)} mm`);
   const named = nameRatio(w, h);
-  el.rRatio.textContent = `${w < h ? 'Portrait' : w > h ? 'Landscape' : 'Square'}${named ? ` · ${named}` : ''} · ${(w / h).toFixed(3)}`;
+  el.rRatio.textContent = `${t(w < h ? 'box.portrait' : w > h ? 'box.landscape' : 'box.square')}${named ? ` · ${ltr(named)}` : ''} · ${ltr((w / h).toFixed(3))}`;
 }
 
 function chip(label, pressed, onClick) {
@@ -331,8 +326,10 @@ el.showContent.addEventListener('change', placeOverlay);
 el.includePage.addEventListener('change', () => { setSelected(state.page, el.includePage.checked); });
 document.addEventListener('keydown', (e) => {
   if (!state || el.work.hidden || e.target.closest('input, button, select')) return;
-  if (e.key === 'ArrowLeft') stepPage(-1);
-  if (e.key === 'ArrowRight') stepPage(1);
+  // Pages run right to left in Hebrew, so the left arrow goes forward there.
+  const fwd = isRtl() ? 'ArrowLeft' : 'ArrowRight', back = isRtl() ? 'ArrowRight' : 'ArrowLeft';
+  if (e.key === back) stepPage(-1);
+  if (e.key === fwd) stepPage(1);
 });
 let resizeTimer;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => state && showPage(state.page), 120); });
@@ -473,30 +470,25 @@ function buildThumbs() {
     t.className = 'thumb';
     t.dataset.p = p;
     const cb = Object.assign(document.createElement('input'), { type: 'checkbox', checked: true });
-    cb.setAttribute('aria-label', `Export page ${p}`);
     const frame = document.createElement('div');
     frame.className = 'tframe';
     const clip = document.createElement('div');
     clip.className = 'tclip';
-    clip.title = `Preview page ${p}`;
     const canvas = document.createElement('canvas');
     clip.append(canvas);
     frame.append(clip);
     const bar = document.createElement('div');
     bar.className = 'tbar';
     const handle = Object.assign(document.createElement('button'), { type: 'button', className: 'tdrag', textContent: '⠿' });
-    handle.setAttribute('aria-label', `Move page ${p}: drag, or use the arrow keys`);
-    handle.title = 'Drag to reorder';
     const num = Object.assign(document.createElement('span'), { className: 'tnum', textContent: p });
     const rotate = Object.assign(document.createElement('button'), { type: 'button', className: 'trot', textContent: '↻' });
-    rotate.setAttribute('aria-label', `Rotate page ${p} clockwise`);
-    rotate.title = 'Rotate 90° clockwise';
     bar.append(handle, num, rotate);
     t.append(cb, frame, bar);
     frag.append(t);
-    state.thumbs[p] = { el: t, cb, clip, canvas, rendered: false };
+    state.thumbs[p] = { el: t, cb, clip, canvas, handle, rotate, rendered: false };
   }
   el.thumbs.replaceChildren(frag);
+  labelThumbs();
   for (const g of state.groups) layoutThumbs(g);
   for (let p = 1; p <= state.n; p++) {
     thumbObserver.observe(state.thumbs[p].clip);
@@ -576,7 +568,8 @@ el.thumbs.addEventListener('pointermove', (e) => {
   const over = document.elementFromPoint(e.clientX, e.clientY)?.closest('.thumb');
   if (over && over !== reorder.tile && el.thumbs.contains(over)) {
     const r = over.getBoundingClientRect();
-    over[e.clientX > r.left + r.width / 2 ? 'after' : 'before'](reorder.tile);
+    const pastMiddle = e.clientX > r.left + r.width / 2;
+    over[pastMiddle !== isRtl() ? 'after' : 'before'](reorder.tile);
   }
   const box = el.thumbs.getBoundingClientRect();
   if (e.clientY < box.top + 40) el.thumbs.scrollTop -= 16;
@@ -598,7 +591,7 @@ el.thumbs.addEventListener('pointercancel', endReorder);
 el.thumbs.addEventListener('keydown', (e) => {
   const handle = e.target.closest('.tdrag');
   if (!handle) return;
-  const d = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[e.key];
+  const d = { ArrowLeft: isRtl() ? 1 : -1, ArrowUp: -1, ArrowRight: isRtl() ? -1 : 1, ArrowDown: 1 }[e.key];
   if (!d) return;
   e.preventDefault();
   const tile = handle.closest('.thumb');
@@ -628,12 +621,11 @@ function orderChanged() {
 function updatePager() {
   const i = state.order.indexOf(state.page);
   const moved = i + 1 !== state.page;
-  el.pageLabel.textContent = `Page ${state.page} of ${state.n}${moved ? ` · now ${i + 1}${ordinal(i + 1)}` : ''}`;
+  el.pageLabel.textContent = t('pager.label', { page: state.page, n: state.n, pos: moved ? i + 1 : 0 });
   el.prev.disabled = i === 0;
   el.next.disabled = i === state.n - 1;
 }
 
-const ordinal = (n) => (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th');
 
 /* ---------- page selection ---------- */
 
@@ -672,7 +664,7 @@ el.range.addEventListener('change', () => {
     updateSelectionUI();
   } catch (err) {
     el.range.classList.add('bad');
-    el.rangeErr.textContent = err.message;
+    el.rangeErr.textContent = err.code ? t(`range.${err.code}`, err.params) : err.message;
     el.rangeErr.hidden = false;
   }
 });
@@ -691,9 +683,9 @@ function selectedPages() {
 
 function updateSelectionUI() {
   const pages = selectedPages();
-  el.selCount.textContent = `${pages.length} of ${state.n} selected`;
+  el.selCount.textContent = t('pages.selected', { k: pages.length, n: state.n });
   if (document.activeElement !== el.range) el.range.value = pages.length === state.n ? '' : formatRange(pages);
-  el.range.placeholder = pages.length === state.n ? `All (1-${state.n})` : 'e.g. 1-5, 8, 10-12';
+  el.range.placeholder = pages.length === state.n ? t('pages.rangeAll', { n: state.n }) : t('pages.rangeEg');
   for (let p = 1; p <= state.n; p++) {
     const t = state.thumbs[p];
     if (!t) continue;
@@ -704,8 +696,7 @@ function updateSelectionUI() {
   updateCurrentInclusion();
   el.download.disabled = pages.length === 0;
   scheduleEstimate();
-  el.download.textContent = pages.length === 0 ? 'Select at least one page'
-    : `Download PDF · ${pages.length} page${pages.length > 1 ? 's' : ''}`;
+  el.download.textContent = pages.length === 0 ? t('export.selectOne') : t('export.downloadN', { n: pages.length });
 }
 
 function updateCurrentInclusion() {
@@ -714,7 +705,7 @@ function updateCurrentInclusion() {
   el.excludedBadge.hidden = on;
   const deg = state.rot[state.page];
   el.rotBadge.hidden = !on || !deg;
-  el.rotBadge.textContent = `Turned ${deg}° clockwise in the export`;
+  el.rotBadge.textContent = t('stage.turned', { deg });
   el.stage.classList.toggle('excluded', !on);
 }
 
@@ -723,17 +714,18 @@ function updateCurrentInclusion() {
 el.download.addEventListener('click', exportPdf);
 el.compress.addEventListener('change', () => {
   el.ppiField.hidden = !el.compress.checked;
-  el.compressHint.textContent = el.compress.checked
-    ? 'Shrinks photos to the chosen resolution and saves them as JPEG. Text and vector graphics aren\'t touched.'
-    : 'Images are kept as they are. Skipped pages and their images are still removed.';
+  showCompressHint();
   showEstimate();
 });
+
+function showCompressHint() {
+  el.compressHint.textContent = t(el.compress.checked ? 'export.hintOn' : 'export.hintOff');
+}
 el.ppi.addEventListener('change', showEstimate);
 
 /* ---------- size estimate (in its own short-lived worker) ---------- */
 
 const PRESETS = [...el.ppi.options].map((o) => Number(o.value));
-const PRESET_LABELS = [...el.ppi.options].map((o) => o.textContent);
 let estimate = null;      // { key, sizes } once known for the current selection
 let estimateTimer = 0, estimateWorker = null, estimateKey = '';
 
@@ -798,14 +790,15 @@ async function runEstimate(key, keep) {
 function showEstimate() {
   const known = estimate && estimate.key === estimateKey ? estimate.sizes : null;
   [...el.ppi.options].forEach((o, i) => {
-    o.textContent = known ? `${PRESET_LABELS[i]} · ≈ ${fmtBytes(known.presets[i])}` : PRESET_LABELS[i];
+    const label = t(`export.ppi${PRESETS[i]}`);
+    o.textContent = known ? `${label} · ${ltr(`≈ ${fmtBytes(known.presets[i])}`)}` : label;
   });
   if (!state || state.large || !estimateKey) { el.estimate.hidden = true; return; }
   el.estimate.hidden = false;
-  if (!known) { el.estimate.textContent = 'Estimating the file size…'; return; }
+  if (!known) { el.estimate.textContent = t('export.estimating'); return; }
   const size = el.compress.checked ? known.presets[PRESETS.indexOf(Number(el.ppi.value))] : known.none;
-  el.estimate.replaceChildren('Estimated size: ', Object.assign(document.createElement('strong'), { textContent: `≈ ${fmtBytes(size)}` }),
-    ` (now ${fmtBytes(state.file.size)})`);
+  el.estimate.replaceChildren(t('export.estimate'), Object.assign(document.createElement('strong'), { textContent: ltr(`≈ ${fmtBytes(size)}`) }),
+    t('export.estimateNow', { size: fmtBytes(state.file.size) }));
 }
 
 let worker = null, workerReady = null;
@@ -827,7 +820,7 @@ function warmWorker() {
     });
     w.addEventListener('error', (e) => {
       const err = Object.assign(
-        new Error(e.message || 'The PDF engine stopped unexpectedly. Try again, or export fewer pages at a time.'),
+        new Error(e.message || t('err.engine')),
         { memory: isMemoryError(e.message) },
       );
       reject(err);
@@ -874,7 +867,7 @@ async function exportPdf() {
     const ppi = Number(el.ppi.value);
     const compress = el.compress.checked ? { ppi, quality: QUALITY[ppi] ?? 78 } : null;
 
-    say('Loading the PDF engine…');
+    say(t('export.loading'));
     await warmWorker();
     if (my !== session) return;
     const id = ++jobId;
@@ -887,9 +880,9 @@ async function exportPdf() {
           if (m.phase === 'images' && m.total) {
             el.saveProgress.hidden = false;
             el.saveBar.style.width = `${(m.done / m.total) * 100}%`;
-            say(`Compressing images… ${m.done} / ${m.total}`);
+            say(t('export.images', { done: m.done, total: m.total }));
           } else {
-            say({ open: 'Opening the PDF…', pages: 'Removing skipped pages…', scan: 'Finding images…', save: 'Writing the file…' }[m.phase] || 'Working…');
+            say(t(['open', 'pages', 'scan', 'save'].includes(m.phase) ? `export.${m.phase}` : 'export.working'));
           }
         },
       });
@@ -912,21 +905,19 @@ async function exportPdf() {
     const before = state.file.size, after = result.bytes.length;
     const line = document.createElement('div');
     line.className = 'result';
-    line.append(`Saved ${name}: ${fmtBytes(before)} → `);
+    line.append(t('export.saved', { name: ltr(name), before: fmtBytes(before) }));
     const strong = document.createElement('strong');
     strong.textContent = fmtBytes(after);
-    line.append(strong, after < before ? ` (${Math.min(99, Math.floor((1 - after / before) * 100))}% smaller)` : '');
+    line.append(strong, after < before ? t('export.smaller', { pct: Math.min(99, Math.floor((1 - after / before) * 100)) }) : '');
     el.saveText.replaceChildren(line);
   } catch (err) {
     console.error(err);
     retireWorker();
     el.saveProgress.hidden = true;
     say('');
-    showError(err?.memory || isMemoryError(err)
-      ? 'This device ran out of memory while exporting. Try fewer pages at a time, a lower image resolution, or a computer.'
-      : /encrypt|password/i.test(err?.message || '')
-        ? 'This PDF is encrypted, so it can’t be rewritten here.'
-        : `Couldn't write the PDF: ${err?.message || err}`);
+    showError(err?.memory || isMemoryError(err) ? t('err.memory')
+      : /encrypt|password/i.test(err?.message || '') ? t('err.encrypted')
+        : t('err.write', { msg: err?.message || err }));
   } finally {
     if (state) el.download.disabled = selectedPages().length === 0;
     if (state && my === session) scheduleEstimate();
@@ -965,21 +956,68 @@ async function openShared() {
 }
 openShared();
 
+/* ---------- language ---------- */
+
+function storedLang() { try { return localStorage.getItem('pared-lang'); } catch { return null; } }
+
+setLang(pickLang({ search: location.search, saved: storedLang(), languages: navigator.languages || [navigator.language || ''] }));
+showCompressHint();
+showEstimate();
+
+el.lang.addEventListener('click', () => {
+  const next = lang() === 'he' ? 'en' : 'he';
+  try { localStorage.setItem('pared-lang', next); } catch { /* private mode: just this visit */ }
+  setLang(next);
+  el.lang.lang = next === 'he' ? 'en' : 'he'; // the button names the other language
+  rerender();
+});
+el.lang.lang = lang() === 'he' ? 'en' : 'he';
+
+// Redraw every piece of text the app writes itself, in the current language.
+function rerender() {
+  showCompressHint();
+  showEstimate();
+  if (!state) return;
+  if (state.groups.length && state.groups[0].W) showFileMeta();
+  labelThumbs();
+  updateSelectionUI();
+  updatePager();
+  updateCurrentInclusion();
+  refreshPanel();
+}
+
+function showFileMeta() {
+  const g0 = state.groups[0];
+  el.fmeta.textContent = t('file.meta', { size: fmtBytes(state.file.size), n: state.n, sheet: fmtSheet(g0.W, g0.H) });
+}
+
+function labelThumbs() {
+  for (let p = 1; p <= state.n; p++) {
+    const th = state.thumbs[p];
+    if (!th) continue;
+    th.cb.setAttribute('aria-label', t('thumb.export', { p }));
+    th.clip.title = t('thumb.preview', { p });
+    th.handle.setAttribute('aria-label', t('thumb.move', { p }));
+    th.handle.title = t('thumb.moveTitle');
+    th.rotate.setAttribute('aria-label', t('thumb.rotate', { p }));
+    th.rotate.title = t('thumb.rotateTitle');
+  }
+}
+
 /* ---------- helpers ---------- */
 
 function showError(msg) { el.error.textContent = msg; el.error.hidden = false; el.progress.hidden = true; }
 const fmtPt = (v) => (Math.round(v * 10) / 10).toString();
 const fmtMm = (pt) => (Math.round((pt * 25.4 / 72) * 10) / 10).toString();
-const article = (s) => (/^(a|e|i|o|u|8|11|18)/i.test(s) ? 'An' : 'A');
 function fmtBytes(b) {
-  if (b < 1e3) return `${b} B`;
-  if (b < 1e6) return `${(b / 1e3).toFixed(0)} KB`;
-  return `${(b / 1e6).toFixed(1)} MB`;
+  if (b < 1e3) return ltr(`${b} B`);
+  if (b < 1e6) return ltr(`${(b / 1e3).toFixed(0)} KB`);
+  return ltr(`${(b / 1e6).toFixed(1)} MB`);
 }
 function fmtSheet(W, H) {
   const iso = [['A3', 842, 1191], ['A4', 595, 842], ['A5', 420, 595], ['Letter', 612, 792], ['Legal', 612, 1008]];
   const lo = Math.min(W, H), hi = Math.max(W, H);
   const hit = iso.find(([, a, b]) => Math.abs(a - lo) < 2 && Math.abs(b - hi) < 2);
-  const orient = W > H ? 'landscape' : W < H ? 'portrait' : 'square';
-  return hit ? `${hit[0]} ${orient}` : `${fmtMm(W)} × ${fmtMm(H)} mm`;
+  const orient = t(W > H ? 'sheet.landscape' : W < H ? 'sheet.portrait' : 'sheet.square');
+  return hit ? `${ltr(hit[0])} ${orient}` : ltr(`${fmtMm(W)} × ${fmtMm(H)} mm`);
 }

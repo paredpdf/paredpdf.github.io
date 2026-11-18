@@ -21,7 +21,8 @@
       </svg>
       <span>Pared</span>
     </div>
-    <p class="tag">Fix the page size, crop the margins, shrink the file. <strong>100% in your browser, nothing uploaded.</strong></p>
+    <p class="tag"><span data-i18n="tag.main">Fix the page size, crop the margins, shrink the file.</span> <strong data-i18n="tag.private">100% in your browser, nothing uploaded.</strong></p>
+    <button class="btn ghost lang" id="lang" type="button" lang="he" data-i18n="lang.switch" data-i18n-aria-label="lang.switchAria" aria-label="החלפה לעברית">עברית</button>
   </header>
 
   <main>
@@ -34,15 +35,15 @@
           <path d="M30 40h10M90 40h-10" class="arrow"/>
           <path d="M36 36l4 4-4 4M84 36l-4 4 4 4" class="arrow"/>
         </svg>
-        <h1>Drop a PDF here</h1>
-        <p>Pared finds the real page inside a sheet that was exported at the wrong size (a portrait slide on a landscape page, for example), crops to it, and can shrink the file.</p>
-        <button class="btn primary" id="pick" type="button">Choose a PDF</button>
+        <h1 data-i18n="drop.title">Drop a PDF here</h1>
+        <p data-i18n="drop.text">Pared finds the real page inside a sheet that was exported at the wrong size (a portrait slide on a landscape page, for example), crops to it, and can shrink the file.</p>
+        <button class="btn primary" id="pick" type="button" data-i18n="drop.pick">Choose a PDF</button>
       </div>
     </section>
 
     <section id="work" class="work" hidden>
       <div class="stage-col">
-        <div class="stage-wrap" id="stageWrap">
+        <div class="stage-wrap" id="stageWrap" dir="ltr">
           <div class="stage" id="stage">
             <canvas id="canvas"></canvas>
             <div class="clip"><div class="shade" id="shade"></div></div>
@@ -53,32 +54,32 @@
               <div class="h c" data-h="nw"></div><div class="h c" data-h="ne"></div>
               <div class="h c" data-h="sw"></div><div class="h c" data-h="se"></div>
             </div>
-            <div class="excluded-badge" id="excludedBadge" hidden>Not exported</div>
+            <div class="excluded-badge" id="excludedBadge" hidden data-i18n="stage.notExported">Not exported</div>
             <div class="excluded-badge" id="rotBadge" hidden></div>
           </div>
         </div>
         <nav class="pager">
-          <button class="btn icon" id="prev" type="button" aria-label="Previous page">‹</button>
+          <button class="btn icon" id="prev" type="button" data-i18n-aria-label="pager.prev" aria-label="Previous page">‹</button>
           <span id="pageLabel">Page 1 of 1</span>
-          <button class="btn icon" id="next" type="button" aria-label="Next page">›</button>
-          <label class="toggle"><input type="checkbox" id="includePage" checked> Export this page</label>
-          <label class="toggle"><input type="checkbox" id="showContent" checked> Show detected content</label>
+          <button class="btn icon" id="next" type="button" data-i18n-aria-label="pager.next" aria-label="Next page">›</button>
+          <label class="toggle"><input type="checkbox" id="includePage" checked> <span data-i18n="pager.include">Export this page</span></label>
+          <label class="toggle"><input type="checkbox" id="showContent" checked> <span data-i18n="pager.showContent">Show detected content</span></label>
         </nav>
 
         <section class="pages" aria-labelledby="pagesTitle">
           <div class="pages-h">
-            <h2 id="pagesTitle">Pages</h2>
+            <h2 id="pagesTitle" data-i18n="pages.title">Pages</h2>
             <span class="selcount" id="selCount"></span>
             <div class="pages-tools">
-              <input id="range" class="range" type="text" inputmode="numeric" placeholder="e.g. 1-5, 8, 10-12" aria-label="Pages to export" spellcheck="false">
-              <button class="chip" id="selAll" type="button">All</button>
-              <button class="chip" id="selNone" type="button">None</button>
-              <button class="chip" id="resetOrder" type="button" hidden>Reset order</button>
+              <input id="range" class="range" type="text" inputmode="numeric" placeholder="e.g. 1-5, 8, 10-12" data-i18n-aria-label="pages.rangeAria" aria-label="Pages to export" spellcheck="false">
+              <button class="chip" id="selAll" type="button" data-i18n="pages.all">All</button>
+              <button class="chip" id="selNone" type="button" data-i18n="pages.none">None</button>
+              <button class="chip" id="resetOrder" type="button" hidden data-i18n="pages.resetOrder">Reset order</button>
             </div>
           </div>
           <div class="range-err" id="rangeErr" hidden></div>
           <div class="thumbs" id="thumbs"></div>
-          <p class="hint">Click a thumbnail to preview it, and use its checkbox to include or skip it (shift-click for a range). Drag ⠿ to change the order, and press ↻ to rotate a page.</p>
+          <p class="hint" data-i18n="pages.hint">Click a thumbnail to preview it, and use its checkbox to include or skip it (shift-click for a range). Drag ⠿ to change the order, and press ↻ to rotate a page.</p>
         </section>
       </div>
 
@@ -95,7 +96,7 @@
 
         <div class="card" id="detectCard" hidden>
           <div class="card-h">
-            <span>Detected page</span>
+            <span data-i18n="detect.title">Detected page</span>
             <span class="badge" id="confidence"></span>
           </div>
           <p id="detectText"></p>
@@ -103,37 +104,37 @@
         </div>
 
         <div class="card" id="boxCard" hidden>
-          <div class="card-h"><span>Keep this area</span></div>
-          <div class="seg scope" role="group" aria-label="Apply this crop to">
+          <div class="card-h"><span data-i18n="box.title">Keep this area</span></div>
+          <div class="seg scope" role="group" data-i18n-aria-label="box.scopeAria" aria-label="Apply this crop to">
             <button type="button" id="scopeAll" aria-pressed="true">All pages</button>
-            <button type="button" id="scopePage" aria-pressed="false">This page only</button>
+            <button type="button" id="scopePage" aria-pressed="false" data-i18n="box.scopePage">This page only</button>
           </div>
           <p class="hint scope-hint" id="scopeHint" hidden></p>
-          <div class="seg" role="group" aria-label="Orientation">
+          <div class="seg" role="group" data-i18n-aria-label="box.orientAria" aria-label="Orientation">
             <button type="button" id="orientP" aria-pressed="true">
               <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="4" y="1.5" width="8" height="13" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
-              Portrait
+              <span data-i18n="box.portrait">Portrait</span>
             </button>
             <button type="button" id="orientL" aria-pressed="false">
               <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="1.5" y="4" width="13" height="8" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
-              Landscape
+              <span data-i18n="box.landscape">Landscape</span>
             </button>
           </div>
           <div class="chips" id="chips"></div>
           <dl class="readout">
-            <dt>Size</dt><dd id="rSize"></dd>
-            <dt>In mm</dt><dd id="rMm"></dd>
-            <dt>Shape</dt><dd id="rRatio"></dd>
+            <dt data-i18n="box.size">Size</dt><dd id="rSize"></dd>
+            <dt data-i18n="box.mm">In mm</dt><dd id="rMm"></dd>
+            <dt data-i18n="box.shape">Shape</dt><dd id="rRatio"></dd>
           </dl>
-          <p class="hint">Drag the edges in the preview to fine-tune.</p>
+          <p class="hint" data-i18n="box.dragHint">Drag the edges in the preview to fine-tune.</p>
         </div>
 
         <div class="card" id="exportCard" hidden>
-          <div class="card-h"><span>Export</span></div>
-          <p class="warn" id="memWarn" hidden>This is a large file for a phone or tablet. If the export fails, export fewer pages at a time.</p>
-          <label class="check"><input type="checkbox" id="compress" checked> Compress images</label>
+          <div class="card-h"><span data-i18n="export.title">Export</span></div>
+          <p class="warn" id="memWarn" hidden data-i18n="export.memWarn">This is a large file for a phone or tablet. If the export fails, export fewer pages at a time.</p>
+          <label class="check"><input type="checkbox" id="compress" checked> <span data-i18n="export.compress">Compress images</span></label>
           <label class="field" id="ppiField">
-            <span>Image resolution</span>
+            <span data-i18n="export.resolution">Image resolution</span>
             <select id="ppi">
               <option value="150">150 ppi · smallest file</option>
               <option value="200" selected>200 ppi · sharp on screens</option>
@@ -142,12 +143,12 @@
           </label>
           <p class="hint" id="compressHint">Shrinks photos to the chosen resolution and saves them as JPEG. Text and vector graphics aren't touched.</p>
           <p class="estimate" id="estimate" hidden></p>
-          <button class="btn primary wide" id="download" type="button">Download PDF</button>
+          <button class="btn primary wide" id="download" type="button" data-i18n="export.download">Download PDF</button>
           <div class="progress" id="saveProgress" hidden><div class="bar"><span id="saveBar"></span></div></div>
           <div class="ptext" id="saveText"></div>
         </div>
 
-        <button class="btn ghost wide" id="reset" type="button" hidden>Start over</button>
+        <button class="btn ghost wide" id="reset" type="button" hidden data-i18n="reset">Start over</button>
         <div class="error" id="error" hidden></div>
       </aside>
     </section>
