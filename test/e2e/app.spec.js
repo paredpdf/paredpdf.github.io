@@ -1025,3 +1025,42 @@ test('with a file open, a new version waits for "Reload"', async ({ page, reques
   await expect(page.locator('#updateBar')).toBeHidden();
   expect(await servedVersion()).toBe('ccccccc33333');
 });
+
+/* ---------- signatures on thumbnails ---------- */
+
+test('thumbnails show signatures where they sit, and follow changes', async ({ page }) => {
+  await load(page);
+  await drawSignature(page);
+  const thumbSig = page.locator('.thumb[data-p="1"] .tsig');
+  await expect(thumbSig).toHaveCount(1);
+  await expect(thumbSig).toHaveAttribute('src', /^data:image\/png/);
+  await expect(page.locator('.thumb[data-p="2"] .tsig')).toHaveCount(0);
+  // Same place on the thumbnail as in the preview, relative to the page.
+  const where = async (sig, frame) => {
+    const s = await page.locator(sig).boundingBox(), f = await page.locator(frame).boundingBox();
+    return [(s.x + s.width / 2 - f.x) / f.width, (s.y + s.height / 2 - f.y) / f.height];
+  };
+  const big = await where('.sig', '#crop'), small = await where('.thumb[data-p="1"] .tsig', '.thumb[data-p="1"] .tclip');
+  expect(Math.abs(big[0] - small[0])).toBeLessThan(0.05);
+  expect(Math.abs(big[1] - small[1])).toBeLessThan(0.05);
+  // Moving it moves the thumbnail's copy.
+  const before = await thumbSig.boundingBox();
+  await page.locator('.sig').focus();
+  await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('Shift+ArrowDown');
+  await expect.poll(async () => (await thumbSig.boundingBox()).y).toBeGreaterThan(before.y + 2);
+  // Removing it removes the copy.
+  await page.keyboard.press('Delete');
+  await expect(thumbSig).toHaveCount(0);
+});
+
+test('on a turned page, the thumbnail shows the signature upright too', async ({ page }) => {
+  await load(page);
+  await page.click('.thumb[data-p="1"] .trot');
+  await page.click('#addSign');
+  await page.click('#tabType');
+  await page.fill('#sigName', 'Ada Lovelace');
+  await page.click('#sigUse');
+  const b = await page.locator('.thumb[data-p="1"] .tsig').boundingBox();
+  expect(b.width).toBeGreaterThan(b.height * 2); // wide, like the name, on screen
+});

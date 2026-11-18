@@ -601,6 +601,28 @@ function layoutThumbs(g) {
     const deg = state.rot[p];
     t.clip.style.transform = deg ? `rotate(${deg}deg)${deg % 180 ? ` scale(${Math.min(w / h, h / w)})` : ''}` : '';
     Object.assign(t.canvas.style, { width: `${cw}px`, height: `${ch}px`, left: `${-b.x0 * cw}px`, top: `${-b.y0 * ch}px` });
+    t.sheet = { cw, ch, x0: b.x0, y0: b.y0 };
+    renderThumbSigns(p);
+  }
+}
+
+// A page's signatures on its thumbnail, where they sit on the page. The
+// thumbnail turns with the page, so each is turned back, as in the preview.
+function renderThumbSigns(p) {
+  const t = state?.thumbs[p];
+  if (!t?.sheet) return;
+  for (const old of t.clip.querySelectorAll('.tsig')) old.remove();
+  const { cw, ch, x0, y0 } = t.sheet, deg = state.rot[p] || 0;
+  for (const item of state.signs.filter((x) => x.page === p)) {
+    const b = item.box, w = (b.x1 - b.x0) * cw, h = (b.y1 - b.y0) * ch;
+    const [iw, ih] = deg % 180 ? [h, w] : [w, h];
+    const img = Object.assign(document.createElement('img'), { className: 'tsig', alt: '' });
+    Object.assign(img.style, {
+      left: `${(b.x0 - x0) * cw + w / 2}px`, top: `${(b.y0 - y0) * ch + h / 2}px`, width: `${iw}px`, height: `${ih}px`,
+      transform: `translate(-50%, -50%) rotate(${-deg}deg)`,
+    });
+    (item.preview ??= signaturePreview(item.sig)).then((url) => { img.src = url; });
+    t.clip.append(img);
   }
 }
 
@@ -963,6 +985,7 @@ function renderSigns() {
     signNodes.set(item, node);
   }
   el.signHint.hidden = !state.signs.length;
+  renderThumbSigns(state.page);
 }
 
 function removeSign(item) {
@@ -978,7 +1001,7 @@ function clampSign(item, b) {
   return { x0, y0, x1: x0 + w, y1: y0 + h };
 }
 
-let signDrag = null;
+let signDrag = null, thumbSignFrame = 0;
 el.stage.addEventListener('pointerdown', (e) => {
   const node = e.target.closest('.sig');
   if (!node || e.button > 0) return;
@@ -1009,6 +1032,8 @@ el.stage.addEventListener('pointermove', (e) => {
   }
   d.item.box = clampSign(d.item, nb);
   setSigRect(d.node);
+  cancelAnimationFrame(thumbSignFrame);
+  thumbSignFrame = requestAnimationFrame(() => renderThumbSigns(d.item.page));
 });
 const endSignDrag = (e) => { if (signDrag && e.pointerId === signDrag.id) signDrag = null; };
 el.stage.addEventListener('pointerup', endSignDrag);
@@ -1031,6 +1056,7 @@ el.stage.addEventListener('keydown', (e) => {
   const mv = screenToSheet(...key);
   item.box = clampSign(item, { x0: b.x0 + mv[0], y0: b.y0 + mv[1], x1: b.x1 + mv[0], y1: b.y1 + mv[1] });
   setSigRect(node);
+  renderThumbSigns(item.page);
 });
 
 // What the engine needs: each signature as a PNG sized for 300 ppi at its
