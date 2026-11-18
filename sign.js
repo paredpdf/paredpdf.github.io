@@ -5,6 +5,8 @@
 //     points are 0..1 across and down the signature's box; width is the line
 //     width as a fraction of the box height; aspect is width / height.
 //   { kind: 'image', url, aspect }   a transparent PNG data URL
+//   { kind: 'type', text, font, color, aspect, m: { l, r, a, d } }
+//     typed in one of FONTS; m is the text's measured extent in ems
 
 export const INKS = { black: '#1b1b1f', blue: '#1d3f9e' };
 
@@ -186,6 +188,97 @@ function alphaBox(alpha, w, h) {
 
 const hex = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
 
+/* ---------- typed signatures ---------- */
+
+const LATIN = 'U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD';
+const LATIN_EXT = 'U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF';
+const HEBREW = 'U+0307-0308,U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F';
+const ARABIC = 'U+0600-06FF,U+0750-077F,U+0870-088E,U+0890-0891,U+0897-08E1,U+08E3-08FF,U+200C-200E,U+2010-2011,U+204F,U+2E41,U+FB50-FDFF,U+FE70-FE74,U+FE76-FEFC';
+
+// Each family only downloads the files for the letters actually typed.
+const FACES = {
+  'Pared Dancing': [['dancing-script', 'latin', LATIN], ['dancing-script', 'latin-ext', LATIN_EXT]],
+  'Pared Caveat': [['caveat', 'latin', LATIN], ['caveat', 'latin-ext', LATIN_EXT]],
+  'Pared Gveret': [['gveret-levin', 'latin', LATIN], ['gveret-levin', 'hebrew', HEBREW]],
+  'Pared Ruqaa': [['aref-ruqaa', 'latin', LATIN], ['aref-ruqaa', 'arabic', ARABIC]],
+};
+
+// Styles to choose from. Each falls back to the Hebrew and Arabic fonts, so
+// a name in any of the interface's scripts comes out handwritten.
+export const FONTS = [
+  { id: 'dancing', name: 'Dancing Script', scripts: ['latin'], stack: ['Pared Dancing', 'Pared Gveret', 'Pared Ruqaa'] },
+  { id: 'caveat', name: 'Caveat', scripts: ['latin'], stack: ['Pared Caveat', 'Pared Gveret', 'Pared Ruqaa'] },
+  { id: 'gveret', name: 'Gveret Levin', scripts: ['latin', 'hebrew'], stack: ['Pared Gveret', 'Pared Ruqaa'] },
+  { id: 'ruqaa', name: 'Aref Ruqaa', scripts: ['latin', 'arabic'], stack: ['Pared Ruqaa', 'Pared Gveret'] },
+];
+
+// The styles that can write all of this text's letters themselves (the
+// others would only show their fallback). All of them if none can.
+export function fontsFor(text) {
+  const need = [/[\u0590-\u05FF\uFB1D-\uFB4F]/.test(text) && 'hebrew', /[\u0600-\u08FF\uFB50-\uFDFF\uFE70-\uFEFC]/.test(text) && 'arabic'].filter(Boolean);
+  const fit = FONTS.filter((f) => need.every((sc) => f.scripts.includes(sc)));
+  return fit.length ? fit : FONTS;
+}
+
+let facesAdded = false;
+function addFaces() {
+  if (facesAdded || typeof FontFace !== 'function') return;
+  facesAdded = true;
+  for (const [family, faces] of Object.entries(FACES)) {
+    for (const [dir, sub, unicodeRange] of faces) {
+      const url = new URL(`./vendor/fonts/${dir}/${dir}-${sub}-400-normal.woff2`, import.meta.url);
+      document.fonts.add(new FontFace(family, `url(${url}) format('woff2')`, { unicodeRange, display: 'block' }));
+    }
+  }
+}
+
+export const fontCss = (id, px) => `${px}px ${FONTS.find((f) => f.id === id).stack.map((f) => `"${f}"`).join(', ')}, cursive`;
+
+const RTL_CHARS = /[֐-ࣿיִ-﷿ﹰ-ﻼ]/;
+const MARGIN = 0.12; // ems of room around the ink
+
+function setupText(ctx, sig, px) {
+  ctx.font = fontCss(sig.font, px);
+  ctx.direction = RTL_CHARS.test(sig.text) ? 'rtl' : 'ltr';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+}
+
+// Wait until the faces for these letters are loaded, so measuring and
+// drawing use the handwriting font, not a fallback.
+export async function loadFont(id, text) {
+  addFaces();
+  await document.fonts.load(fontCss(id, 40), text || 'a');
+}
+
+export async function typedSignature(text, font, color = INKS.black) {
+  text = text.trim();
+  if (!text) return null;
+  await loadFont(font, text);
+  const ctx = document.createElement('canvas').getContext('2d');
+  const sig = { kind: 'type', text, font, color };
+  setupText(ctx, sig, 100);
+  const tm = ctx.measureText(text);
+  // Extent of the ink around the drawing point, in ems.
+  const m = {
+    l: (tm.actualBoundingBoxLeft ?? 0) / 100,
+    r: (tm.actualBoundingBoxRight ?? tm.width) / 100,
+    a: (tm.actualBoundingBoxAscent ?? 80) / 100,
+    d: (tm.actualBoundingBoxDescent ?? 20) / 100,
+  };
+  sig.m = m;
+  sig.aspect = (m.l + m.r + 2 * MARGIN) / (m.a + m.d + 2 * MARGIN);
+  return sig;
+}
+
+function drawTyped(ctx, sig, w, h) {
+  const { l, a, d } = sig.m;
+  const px = h / (a + d + 2 * MARGIN);
+  setupText(ctx, sig, px);
+  ctx.fillStyle = sig.color;
+  ctx.fillText(sig.text, (MARGIN + l) * px, (MARGIN + a) * px);
+}
+
 /* ---------- rendering ---------- */
 
 const images = new Map(); // data URL -> decoded image
@@ -207,6 +300,9 @@ export async function renderSignature(sig, w, h) {
   const ctx = c.getContext('2d');
   if (sig.kind === 'draw') {
     for (const s of sig.strokes) strokePath(ctx, s, c.width, c.height, Math.max(1, sig.width * c.height), sig.color);
+  } else if (sig.kind === 'type') {
+    await loadFont(sig.font, sig.text);
+    drawTyped(ctx, sig, c.width, c.height);
   } else if (sig.kind === 'image') {
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(await decoded(sig.url), 0, 0, c.width, c.height);

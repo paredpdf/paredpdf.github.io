@@ -25,3 +25,12 @@ test('every app file the page needs is precached', () => {
   const root = fs.readdirSync(new URL('..', import.meta.url)).filter((f) => /\.(js|css|html)$/.test(f) && !notServed.has(f));
   for (const f of root) assert.ok(app.has(f), `${f} is not in APP_FILES, so it won't work offline`);
 });
+
+test('every vendored font is precached, and the cache name has the font version', () => {
+  const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const fonts = fs.readdirSync(new URL('../vendor/fonts', import.meta.url), { recursive: true }).filter((f) => f.endsWith('.woff2'));
+  const pre = new Set(list('VENDOR_FILES'));
+  for (const f of fonts) assert.ok(pre.has(`vendor/fonts/${f}`), `vendor/fonts/${f} is not precached`);
+  const name = sw.match(/const VENDOR_CACHE = '([^']+)'/)[1];
+  assert.ok(name.endsWith(`fonts-${pkg.devDependencies['@fontsource/caveat']}`), name);
+});

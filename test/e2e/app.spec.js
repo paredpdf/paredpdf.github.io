@@ -672,3 +672,62 @@ test('the signature dialog speaks the chosen language', async ({ page }) => {
   await page.click('#sigCancel');
   await expect(page.locator('#signDlg')).toBeHidden();
 });
+
+async function typeSignature(page, name, style) {
+  await page.click('#addSign');
+  await page.click('#tabType');
+  await expect(page.locator('#sigName')).toBeFocused();
+  await page.fill('#sigName', name);
+  if (style) await page.click(`.fontchip[title="${style}"]`);
+  await page.click('#sigUse');
+  await expect(page.locator('#signDlg')).toBeHidden();
+  await expect(page.locator('.sig img').last()).toHaveAttribute('src', /^data:image\/png/);
+}
+
+test('types a signature in a handwriting font and exports it', async ({ page }) => {
+  await load(page);
+  await page.click('#addSign');
+  await page.click('#tabType');
+  await expect(page.locator('#sigUse')).toBeDisabled(); // nothing typed yet
+  await page.click('#sigCancel');
+  await typeSignature(page, 'Ada Lovelace', 'Caveat');
+  // The handwriting font itself was used, not a fallback.
+  expect(await page.evaluate(() => document.fonts.check('20px "Pared Caveat"', 'Ada'))).toBe(true);
+  // A wide, short box: the shape of a written name.
+  const b = await page.locator('.sig').boundingBox();
+  expect(b.width / b.height).toBeGreaterThan(3);
+  expect(signatures(await download(page))[0].rects).toHaveLength(1);
+});
+
+test('typed names in Hebrew and Arabic get a handwriting font for their script', async ({ page }) => {
+  await load(page, PDF, '/?lang=he');
+  await page.click('#addSign');
+  await page.click('#tabType');
+  // Hebrew interface: the Hebrew style is picked by default.
+  await page.fill('#sigName', 'שי אפשטיין');
+  // Only the style that can write Hebrew is offered.
+  await expect(page.locator('.fontchip')).toHaveCount(1);
+  await expect(page.locator('.fontchip[aria-pressed="true"]')).toHaveAttribute('title', 'Gveret Levin');
+  await page.click('#sigUse');
+  await expect(page.locator('.sig')).toHaveCount(1);
+  expect(await page.evaluate(() => document.fonts.check('20px "Pared Gveret"', 'שי'))).toBe(true);
+
+  await page.selectOption('#lang', 'ar');
+  await typeSignature(page, 'ليلى', 'Aref Ruqaa');
+  expect(await page.evaluate(() => document.fonts.check('20px "Pared Ruqaa"', 'ليلى'))).toBe(true);
+  await expect(page.locator('.sig')).toHaveCount(2);
+});
+
+test('typing a signature works offline', async ({ page, context, browserName }) => {
+  test.skip(browserName !== 'chromium', 'service worker offline mode is checked in Chromium');
+  await page.goto('/');
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.reload();
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await context.setOffline(true);
+  await page.reload();
+  await page.setInputFiles('#file', PDF);
+  await expect(page.locator('#exportCard')).toBeVisible({ timeout: 60_000 });
+  await typeSignature(page, 'Ada', 'Dancing Script');
+  expect(await page.evaluate(() => document.fonts.check('20px "Pared Dancing"', 'Ada'))).toBe(true);
+});

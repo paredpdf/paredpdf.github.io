@@ -6,7 +6,7 @@ import {
 import { parseRange, formatRange } from './pages.js';
 import { isLargeForDevice, isMemoryError } from './limits.js';
 import { t, ltr, isRtl, lang, locale, setLang, pickLang } from './i18n.js';
-import { INKS, createPad, imageToSignature, signaturePng, signaturePreview } from './sign.js';
+import { INKS, fontsFor, createPad, imageToSignature, typedSignature, loadFont, fontCss, signaturePng, signaturePreview } from './sign.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdfjs/pdf.worker.min.mjs', import.meta.url).href;
 const PDFJS_ASSETS = {
@@ -30,7 +30,8 @@ const el = Object.fromEntries([
   'boxCard', 'scopeAll', 'scopePage', 'scopeHint', 'orientP', 'orientL', 'chips', 'rSize', 'rMm', 'rRatio',
   'exportCard', 'memWarn', 'sigWarn', 'compress', 'ppiField', 'ppi', 'compressHint', 'estimate', 'download', 'saveProgress', 'saveBar', 'saveText',
   'reset', 'error', 'lang', 'version', 'versionLink',
-  'signCard', 'addSign', 'signHint', 'signDlg', 'tabDraw', 'tabUpload', 'paneDraw', 'paneUpload', 'pad', 'sigFile', 'sigPick', 'sigImg',
+  'signCard', 'addSign', 'signHint', 'signDlg', 'tabDraw', 'tabType', 'tabUpload', 'paneDraw', 'paneType', 'paneUpload', 'pad', 'sigFile', 'sigPick', 'sigImg',
+  'sigName', 'fontChips',
   'sigErr', 'sigClear', 'sigCancel', 'sigUse',
 ].map((id) => [id, $(id)]));
 
@@ -718,7 +719,7 @@ function updateCurrentInclusion() {
 
 /* ---------- signatures ---------- */
 
-let pad = null, dlgMode = 'draw', ink = 'black', uploaded = null, uploadedBlob = null, activeSign = null;
+let pad = null, dlgMode = 'draw', ink = 'black', uploaded = null, uploadedBlob = null, typedFont = null;
 
 el.addSign.addEventListener('click', openSignDialog);
 
@@ -731,28 +732,53 @@ function openSignDialog() {
 
 function setDlgMode(mode) {
   dlgMode = mode;
-  el.tabDraw.setAttribute('aria-pressed', String(mode === 'draw'));
-  el.tabUpload.setAttribute('aria-pressed', String(mode === 'upload'));
-  el.paneDraw.hidden = mode !== 'draw';
-  el.paneUpload.hidden = mode !== 'upload';
+  for (const [m, tab, pane] of [['draw', el.tabDraw, el.paneDraw], ['type', el.tabType, el.paneType], ['upload', el.tabUpload, el.paneUpload]]) {
+    tab.setAttribute('aria-pressed', String(mode === m));
+    pane.hidden = mode !== m;
+  }
+  if (mode === 'type') { renderFontChips(); el.sigName.focus(); }
   el.sigErr.hidden = true;
   if (mode === 'draw') pad.redraw(); // the canvas has its size only once shown
   updateSignButtons();
 }
 
 function updateSignButtons() {
-  const empty = dlgMode === 'draw' ? pad.isEmpty() : !uploaded;
+  const empty = dlgMode === 'draw' ? pad.isEmpty() : dlgMode === 'type' ? !el.sigName.value.trim() : !uploaded;
   el.sigUse.disabled = empty;
   el.sigClear.disabled = empty;
 }
 
 el.tabDraw.addEventListener('click', () => setDlgMode('draw'));
+el.tabType.addEventListener('click', () => setDlgMode('type'));
 el.tabUpload.addEventListener('click', () => setDlgMode('upload'));
+el.sigName.addEventListener('input', () => { renderFontChips(); updateSignButtons(); });
+el.sigName.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !el.sigUse.disabled) { e.preventDefault(); el.sigUse.click(); } });
+
+// One button per style, each showing the name (or a sample) in that font.
+function renderFontChips() {
+  const text = el.sigName.value.trim() || t('sign.namePh');
+  const fonts = fontsFor(text);
+  typedFont ??= { he: 'gveret', ar: 'ruqaa' }[lang()] ?? 'dancing';
+  if (!fonts.some((f) => f.id === typedFont)) typedFont = fonts[0].id;
+  el.fontChips.replaceChildren(...fonts.map((f) => {
+    const b = Object.assign(document.createElement('button'), { type: 'button', className: 'fontchip', textContent: text });
+    b.style.font = fontCss(f.id, 26);
+    b.style.color = INKS[ink];
+    b.dir = 'auto';
+    b.title = f.name;
+    b.setAttribute('aria-label', f.name);
+    b.setAttribute('aria-pressed', String(f.id === typedFont));
+    b.addEventListener('click', () => { typedFont = f.id; renderFontChips(); });
+    loadFont(f.id, text).catch(() => {});
+    return b;
+  }));
+}
 for (const sw of el.signDlg.querySelectorAll('.swatch')) {
   sw.addEventListener('click', async () => {
     ink = sw.dataset.ink;
     for (const o of el.signDlg.querySelectorAll('.swatch')) o.setAttribute('aria-pressed', String(o === sw));
     pad.setColor(INKS[ink]);
+    if (dlgMode === 'type') renderFontChips();
     if (uploadedBlob) await useImage(uploadedBlob); // recolour the photo's ink
   });
 }
@@ -780,11 +806,14 @@ async function useImage(blob) {
 
 el.sigClear.addEventListener('click', () => {
   if (dlgMode === 'draw') pad.clear();
+  else if (dlgMode === 'type') { el.sigName.value = ''; renderFontChips(); updateSignButtons(); el.sigName.focus(); }
   else { uploaded = uploadedBlob = null; el.sigImg.hidden = true; el.sigPick.hidden = false; updateSignButtons(); }
 });
 el.sigCancel.addEventListener('click', () => el.signDlg.close());
-el.sigUse.addEventListener('click', () => {
-  const sig = dlgMode === 'draw' ? pad.toSignature() : uploaded;
+el.sigUse.addEventListener('click', async () => {
+  const sig = dlgMode === 'draw' ? pad.toSignature()
+    : dlgMode === 'type' ? await typedSignature(el.sigName.value, typedFont, INKS[ink])
+      : uploaded;
   if (!sig) return;
   el.signDlg.close();
   placeSignature(sig);

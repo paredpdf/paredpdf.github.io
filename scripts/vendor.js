@@ -1,6 +1,6 @@
-// Copies the browser builds of pdf.js and mupdf from node_modules into
-// vendor/, so the site serves them itself instead of loading them from a
-// CDN. Run after changing either version in package.json:
+// Copies the browser builds of pdf.js and mupdf, and the signature fonts,
+// from node_modules into vendor/, so the site serves them itself instead of
+// loading them from a CDN. Run after changing either version in package.json:
 //
 //   npm install && npm run vendor
 //
@@ -22,7 +22,18 @@ export const VENDOR = {
     from: nm('mupdf'),
     files: ['dist/mupdf.js', 'dist/mupdf-wasm.js', 'dist/mupdf-wasm.wasm', 'LICENSE'],
     dirs: [],
-  },
+  },  // Handwriting fonts for typed signatures (SIL Open Font License), regular
+  // weight only, and only the scripts sign.js uses.
+  ...Object.fromEntries([
+    ['dancing-script', ['latin', 'latin-ext']],
+    ['caveat', ['latin', 'latin-ext']],
+    ['gveret-levin', ['latin', 'hebrew']],
+    ['aref-ruqaa', ['latin', 'arabic']],
+  ].map(([font, subsets]) => [`fonts/${font}`, {
+    from: nm('@fontsource', font),
+    files: [...subsets.map((sub) => `files/${font}-${sub}-400-normal.woff2`), 'LICENSE'],
+    dirs: [],
+  }])),
 };
 
 // Every vendored file as [source, destination].
@@ -46,5 +57,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     fs.copyFileSync(src, dst);
   }
   const version = (p) => JSON.parse(fs.readFileSync(path.join(p, 'package.json'))).version;
-  console.log(`vendored pdfjs-dist ${version(VENDOR.pdfjs.from)} and mupdf ${version(VENDOR.mupdf.from)}`);
+  console.log(`vendored pdfjs-dist ${version(VENDOR.pdfjs.from)}, mupdf ${version(VENDOR.mupdf.from)} and ${Object.keys(VENDOR).length - 2} fonts`);
 }

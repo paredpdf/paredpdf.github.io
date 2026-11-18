@@ -7,7 +7,7 @@
 //   versions (test/sw.test.js keeps it in sync with package.json).
 
 const APP_CACHE = 'pared-app-v1';
-const VENDOR_CACHE = 'pared-vendor-pdfjs-4.10.38-mupdf-1.28.1';
+const VENDOR_CACHE = 'pared-vendor-pdfjs-4.10.38-mupdf-1.28.1-fonts-5.3.0';
 const SHARE_CACHE = 'pared-share';
 const NETWORK_TIMEOUT_MS = 4000;
 
@@ -18,6 +18,11 @@ const APP_FILES = [
 const VENDOR_FILES = [
   'vendor/pdfjs/pdf.min.mjs', 'vendor/pdfjs/pdf.worker.min.mjs',
   'vendor/mupdf/mupdf.js', 'vendor/mupdf/mupdf-wasm.js', 'vendor/mupdf/mupdf-wasm.wasm',
+  // Signature fonts, so typing a signature works offline too.
+  'vendor/fonts/dancing-script/dancing-script-latin-400-normal.woff2', 'vendor/fonts/dancing-script/dancing-script-latin-ext-400-normal.woff2',
+  'vendor/fonts/caveat/caveat-latin-400-normal.woff2', 'vendor/fonts/caveat/caveat-latin-ext-400-normal.woff2',
+  'vendor/fonts/gveret-levin/gveret-levin-latin-400-normal.woff2', 'vendor/fonts/gveret-levin/gveret-levin-hebrew-400-normal.woff2',
+  'vendor/fonts/aref-ruqaa/aref-ruqaa-latin-400-normal.woff2', 'vendor/fonts/aref-ruqaa/aref-ruqaa-arabic-400-normal.woff2',
 ];
 
 self.addEventListener('install', (event) => {

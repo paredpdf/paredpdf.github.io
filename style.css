@@ -234,3 +234,11 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 .dlg-actions .spacer { flex: 1; }
 .dlg-err { color: var(--warn); font-size: 13px; margin: 6px 0 0; }
 #signCard .btn.wide { margin-bottom: 4px; }
+.signame { font: inherit; font-size: 16px; width: 100%; margin-top: 12px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); color: var(--ink); }
+.signame:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
+.fonts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.fontchip { display: grid; place-items: center; min-height: 64px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); color: var(--ink); cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; line-height: 1.2; }
+.fontchip[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.fontchip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dlg .seg { grid-template-columns: repeat(3, 1fr); }
+.fonts:has(> :only-child) { grid-template-columns: 1fr; }

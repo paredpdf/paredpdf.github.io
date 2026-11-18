@@ -173,11 +173,17 @@
     <h2 id="signDlgTitle" data-i18n="sign.dlgTitle">Your signature</h2>
     <div class="seg" role="group" data-i18n-aria-label="sign.howAria" aria-label="How to make it">
       <button type="button" id="tabDraw" aria-pressed="true" data-i18n="sign.draw">Draw</button>
+      <button type="button" id="tabType" aria-pressed="false" data-i18n="sign.type">Type</button>
       <button type="button" id="tabUpload" aria-pressed="false" data-i18n="sign.upload">Upload</button>
     </div>
     <div id="paneDraw">
       <canvas class="pad" id="pad" data-i18n-aria-label="sign.padAria" aria-label="Signature pad"></canvas>
       <p class="hint" data-i18n="sign.drawHint">Sign with your mouse, finger or pen.</p>
+    </div>
+    <div id="paneType" hidden>
+      <input type="text" class="signame" id="sigName" dir="auto" autocomplete="name" spellcheck="false" maxlength="60" data-i18n-placeholder="sign.namePh" data-i18n-aria-label="sign.namePh" placeholder="Your name" aria-label="Your name">
+      <div class="fonts" id="fontChips" role="group" data-i18n-aria-label="sign.styleAria" aria-label="Style"></div>
+      <p class="hint" data-i18n="sign.typeHint">Type your name and pick a style.</p>
     </div>
     <div id="paneUpload" hidden>
       <input type="file" id="sigFile" accept="image/*" hidden>
