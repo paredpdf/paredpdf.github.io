@@ -186,38 +186,127 @@ function saveBytes(doc, removePassword = false, reencrypt = undefined) {
 }
 
 /**
- * Facts about the PDF that the page shows before export. For now, how many
- * signature fields are signed: a digital signature covers the exact bytes of
- * the file, so any export, which rewrites the file, breaks it.
+ * Facts about the PDF that the page shows before export:
+ *   signed  how many signature fields are signed. A digital signature covers
+ *           the exact bytes of the file, so any export breaks it.
+ *   photos  camera details found inside JPEG images (see parseExif), one
+ *           entry per image that has any.
+ *   apps    editing programs that left private data (PieceInfo) behind.
+ * With several files, `file` on each photo and app says which (0-based).
  */
 export function inspectPdf(mupdf, bytes, password) {
-  // Several files: inspect each and add up.
   if (Array.isArray(bytes)) {
-    return { signed: bytes.reduce((t, src) => t + inspectPdf(mupdf, src.bytes, src.password).signed, 0) };
+    const all = { signed: 0, photos: [], apps: [] };
+    bytes.forEach((src, file) => {
+      const r = inspectPdf(mupdf, src.bytes, src.password);
+      all.signed += r.signed;
+      all.photos.push(...r.photos.map((p) => ({ ...p, file })));
+      all.apps.push(...r.apps.map((name) => ({ name, file })));
+    });
+    return all;
   }
   const doc = openDoc(mupdf, bytes, password);
   try {
-    let signed = 0;
-    const seen = new Set();
-    const walk = (field, ft, depth) => {
-      if (!field.isDictionary() || depth > 20) return;
-      if (field.isIndirect()) {
-        if (seen.has(field.asIndirect())) return;
-        seen.add(field.asIndirect());
-      }
-      const own = field.get('FT');
-      const type = own.isName() ? own.asName() : ft; // /FT is inherited from parents
-      const kids = field.get('Kids');
-      if (type === 'Sig' && field.get('V').isDictionary()) signed++;
-      if (kids.isArray()) for (let k = 0; k < kids.length; k++) walk(kids.get(k), type, depth + 1);
-    };
-    const form = doc.getTrailer().get('Root').get('AcroForm');
-    const fields = form.isDictionary() ? form.get('Fields') : null;
-    if (fields?.isArray()) for (let k = 0; k < fields.length; k++) walk(fields.get(k), null, 0);
-    return { signed };
+    return { signed: countSigned(doc), ...hiddenDetails(doc) };
   } finally {
     doc.destroy?.();
   }
+}
+
+function countSigned(doc) {
+  let signed = 0;
+  const seen = new Set();
+  const walk = (field, ft, depth) => {
+    if (!field.isDictionary() || depth > 20) return;
+    if (field.isIndirect()) {
+      if (seen.has(field.asIndirect())) return;
+      seen.add(field.asIndirect());
+    }
+    const own = field.get('FT');
+    const type = own.isName() ? own.asName() : ft; // /FT is inherited from parents
+    const kids = field.get('Kids');
+    if (type === 'Sig' && field.get('V').isDictionary()) signed++;
+    if (kids.isArray()) for (let k = 0; k < kids.length; k++) walk(kids.get(k), type, depth + 1);
+  };
+  const form = doc.getTrailer().get('Root').get('AcroForm');
+  const fields = form.isDictionary() ? form.get('Fields') : null;
+  if (fields?.isArray()) for (let k = 0; k < fields.length; k++) walk(fields.get(k), null, 0);
+  return signed;
+}
+
+// What stripMetadata would remove that pdf.js can't see: photo metadata
+// inside JPEGs, and editing programs' private data.
+function hiddenDetails(doc) {
+  const photos = [], apps = new Set();
+  for (let k = 1, n = doc.countObjects(); k < n; k++) {
+    const obj = doc.newIndirect(k);
+    if (!obj.isDictionary() && !obj.isStream()) continue;
+    const piece = obj.get('PieceInfo');
+    if (piece.isDictionary()) piece.forEach((v, name) => apps.add(String(name)));
+    if (obj.isStream() && filterNames(obj.get('Filter')).join() === 'DCTDecode') {
+      const raw = obj.readRawStream();
+      // EXIF sits near the start; no need to copy the whole image.
+      const exif = parseExif(raw.asUint8Array().subarray(0, 256 * 1024));
+      raw.destroy?.();
+      if (exif) photos.push(exif);
+    }
+  }
+  return { photos, apps: [...apps] };
+}
+
+/* ---------- EXIF (photo metadata inside JPEGs) ---------- */
+
+// The parts of a JPEG's EXIF data worth showing someone: camera, software,
+// when it was taken, and where. Null when there's none of that.
+export function parseExif(b) {
+  if (b[0] !== 0xff || b[1] !== 0xd8) return null;
+  for (let i = 2; i + 4 <= b.length && b[i] === 0xff;) {
+    const m = b[i + 1];
+    if (m === 0xda || m === 0xd9) break;
+    const len = (b[i + 2] << 8) | b[i + 3];
+    if (m === 0xe1 && b[i + 4] === 0x45 && b[i + 5] === 0x78 && b[i + 6] === 0x69 && b[i + 7] === 0x66) {
+      try { return readTiff(b.subarray(i + 10, i + 2 + len)); } catch { return null; }
+    }
+    i += 2 + len;
+  }
+  return null;
+}
+
+function readTiff(t) {
+  const dv = new DataView(t.buffer, t.byteOffset, t.byteLength);
+  const le = t[0] === 0x49; // "II" little-endian, "MM" big-endian
+  const u16 = (o) => dv.getUint16(o, le), u32 = (o) => dv.getUint32(o, le);
+  const SIZE = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1, 9: 4, 10: 8 };
+  const ifd = (off) => {
+    const tags = new Map();
+    if (!off || off + 2 > t.length) return tags;
+    for (let k = 0, n = u16(off); k < n && off + 2 + 12 * k + 12 <= t.length; k++) {
+      const e = off + 2 + 12 * k, type = u16(e + 2), count = u32(e + 4), size = (SIZE[type] ?? 1) * count;
+      const at = size <= 4 ? e + 8 : u32(e + 8);
+      if (at + size > t.length) continue;
+      let v;
+      if (type === 2) v = new TextDecoder().decode(t.subarray(at, at + count)).replace(/\0.*$/s, '').trim();
+      else if (type === 3) v = u16(at);
+      else if (type === 4) v = u32(at);
+      else if (type === 5) v = Array.from({ length: count }, (_, j) => u32(at + 8 * j) / (u32(at + 8 * j + 4) || 1));
+      tags.set(u16(e), v);
+    }
+    return tags;
+  };
+  const ifd0 = ifd(u32(4));
+  const exif = ifd(ifd0.get(0x8769));
+  const gps = ifd(ifd0.get(0x8825));
+  const deg = (v, ref) => (Array.isArray(v) && v.length === 3 ? (v[0] + v[1] / 60 + v[2] / 3600) * (ref === 'S' || ref === 'W' ? -1 : 1) : null);
+  const out = {
+    camera: [ifd0.get(0x010f), ifd0.get(0x0110)].filter((x) => typeof x === 'string' && x).join(' ') || null,
+    software: typeof ifd0.get(0x0131) === 'string' ? ifd0.get(0x0131) || null : null,
+    taken: exif.get(0x9003) || ifd0.get(0x0132) || null, // "2026:03:12 14:02:11"
+    lat: deg(gps.get(2), gps.get(1)),
+    lon: deg(gps.get(4), gps.get(3)),
+  };
+  // A camera repeating its make in the model ("Canon Canon EOS R5").
+  if (out.camera) out.camera = out.camera.replace(/^(\S+) \1\b/i, '$1');
+  return Object.values(out).some((v) => v != null) ? out : null;
 }
 
 /* ---------- metadata ---------- */

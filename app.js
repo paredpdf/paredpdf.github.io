@@ -29,7 +29,7 @@ const el = Object.fromEntries([
   'fname', 'fmeta', 'progress', 'progressBar', 'progressText',
   'detectCard', 'confidence', 'detectText', 'groupSel',
   'boxCard', 'scopeAll', 'scopePage', 'scopeHint', 'orientP', 'orientL', 'chips', 'rSize', 'rMm', 'rRatio',
-  'exportCard', 'memWarn', 'sigWarn', 'strip', 'stripHint', 'pwCard', 'pwText', 'pw', 'keepPw', 'keepPwRow', 'outMode', 'everyField', 'everyN', 'compress', 'ppiField', 'ppi', 'compressHint', 'estimate', 'download', 'saveProgress', 'saveBar', 'saveText',
+  'exportCard', 'memWarn', 'sigWarn', 'strip', 'stripHint', 'pwCard', 'pwText', 'pw', 'keepPw', 'keepPwRow', 'outMode', 'everyField', 'everyN', 'metaDetails', 'metaList', 'compress', 'ppiField', 'ppi', 'compressHint', 'estimate', 'download', 'saveProgress', 'saveBar', 'saveText',
   'reset', 'error', 'lang', 'version', 'versionLink', 'about',
   'signCard', 'addSign', 'signHint', 'signDlg', 'tabDraw', 'tabType', 'tabUpload', 'paneDraw', 'paneType', 'paneUpload', 'pad', 'sigFile', 'sigPick', 'sigImg',
   'sigName', 'fontChips',
@@ -122,9 +122,10 @@ async function open(files, passwords = []) {
     state.selected = new Uint8Array(state.n + 1).fill(1);
     await collectGroups(my);
     if (my !== session) return;
-    state.meta = await docs[0].pdf.getMetadata().catch(() => null);
+    for (const d of docs) d.meta = await d.pdf.getMetadata().catch(() => null);
     if (my !== session) return;
     showStripHint();
+    renderHidden();
     const g0 = state.groups[0];
     showFileMeta();
     state.large = isLargeForDevice(size, {
@@ -236,7 +237,7 @@ async function analyse(my) {
   refreshPanel();
   warmWorker();
   scheduleEstimate(0);
-  checkSignatures(my);
+  inspectFiles(my);
 }
 
 // The outermost rectangular clip on the page that could be the real page,
@@ -1174,47 +1175,118 @@ function showDownloadLabel() {
 
 /* ---------- hidden details (metadata) ---------- */
 
-el.strip.addEventListener('change', showStripHint);
+el.strip.addEventListener('change', () => { showStripHint(); renderHidden(); });
 
-// Say what this PDF carries, so the choice is concrete: "This PDF has:
-// author "Shai", made with Keynote, dates."
+const clip = (v, n = 60) => { const s = String(v).trim(); return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
+// Values can be in any script: isolate them inside right-to-left text.
+const iso = (v, n) => (isRtl() ? `⁨${clip(v, n)}⁩` : clip(v, n));
+
+// Document info fields worth showing, in order, with their labels.
+const INFO_FIELDS = [['Title', 'meta.f.title'], ['Author', 'meta.f.author'], ['Subject', 'meta.f.subject'], ['Keywords', 'meta.f.keywords'],
+  ['Creator', 'meta.f.creator'], ['Producer', 'meta.f.producer'], ['CreationDate', 'meta.f.created'], ['ModDate', 'meta.f.modified']];
+
+// Say what the PDF carries, so the choice is concrete: "This PDF has:
+// author "Shai", made with Keynote, dates, where a photo was taken."
 function showStripHint() {
-  const info = state?.meta?.info ?? {};
-  const short = (v) => { const s = String(v).trim(); return s.length > 40 ? `${s.slice(0, 39)}…` : s; };
-  // Names can be in any script: isolate them inside right-to-left text.
-  const iso = (v) => (isRtl() ? `⁨${short(v)}⁩` : short(v));
+  const infos = state?.files?.map((d) => d.meta?.info ?? {}) ?? [];
   const found = [];
-  if (info.Author?.trim()) found.push(t('meta.author', { v: iso(info.Author) }));
-  const tool = info.Creator?.trim() || info.Producer?.trim();
-  if (tool) found.push(t('meta.software', { v: iso(tool) }));
-  if (info.CreationDate || info.ModDate) found.push(t('meta.dates'));
-  if (state?.meta?.metadata) found.push(t('meta.xmp'));
+  const authors = [...new Set(infos.map((i) => i.Author?.trim()).filter(Boolean))];
+  if (authors.length) found.push(t('meta.author', { v: authors.map((a) => iso(a, 40)).join(', ') }));
+  const tools = [...new Set(infos.map((i) => i.Creator?.trim() || i.Producer?.trim()).filter(Boolean))];
+  if (tools.length) found.push(t('meta.software', { v: tools.map((a) => iso(a, 40)).join(', ') }));
+  if (infos.some((i) => i.CreationDate || i.ModDate)) found.push(t('meta.dates'));
+  if (state?.files?.some((d) => d.meta?.metadata)) found.push(t('meta.xmp'));
+  const photos = state?.found?.photos ?? [];
+  if (photos.some((p) => p.lat != null)) found.push(t('meta.location'));
+  else if (photos.length) found.push(t('meta.photos', { n: photos.length }));
+  if (state?.found?.apps.length) found.push(t('meta.appsShort'));
   const list = found.length ? ` ${t('export.stripFound', { list: found.join(', ') })}` : '';
   el.stripHint.textContent = (el.strip.checked ? t('export.stripOn') : t('export.stripOff')) + list;
 }
 
-/* ---------- existing digital signatures ---------- */
+function pdfDate(v) {
+  const d = pdfjsLib.PDFDateString.toDateObject(v);
+  return d ? new Intl.DateTimeFormat(locale(), { dateStyle: 'medium', timeStyle: 'short' }).format(d) : v;
+}
+function exifDate(v) {
+  const m = /^(\d{4}):(\d\d):(\d\d) (\d\d):(\d\d)/.exec(v ?? '');
+  // EXIF times have no time zone: show them as written.
+  return m ? new Intl.DateTimeFormat(locale(), { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })
+    .format(Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5])) : v;
+}
+
+// Everything found, file by file, each marked removed or kept on export.
+function renderHidden() {
+  const files = state?.files ?? [];
+  const sections = files.map((d, k) => {
+    const rows = [];
+    const info = d.meta?.info ?? {};
+    for (const [key, label] of INFO_FIELDS) {
+      const v = info[key];
+      if (typeof v !== 'string' || !v.trim()) continue;
+      rows.push([t(label), /Date$/.test(key) ? pdfDate(v) : iso(v), key === 'Title']);
+    }
+    for (const [key, v] of Object.entries(info.Custom ?? {})) if (String(v).trim()) rows.push([ltr(key), iso(v), false]);
+    const xmp = d.meta?.metadata?.getAll?.() ?? {};
+    for (const [key, v] of Object.entries(xmp).slice(0, 12)) {
+      const val = Array.isArray(v) ? v.join(', ') : v;
+      if (String(val ?? '').trim()) rows.push([ltr(key), iso(val), false]);
+    }
+    (state.found?.photos ?? []).filter((p) => (p.file ?? 0) === k).forEach((p, i) => {
+      const parts = [p.camera && iso(p.camera, 40), p.taken && t('meta.taken', { when: exifDate(p.taken) }),
+        p.lat != null && t('meta.at', { place: ltr(`${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`) }),
+        p.software && t('meta.editedWith', { v: iso(p.software, 30) })].filter(Boolean);
+      rows.push([t('meta.photo', { n: i + 1 }), parts.join(' · '), false]);
+    });
+    const apps = (state.found?.apps ?? []).filter((a) => (a.file ?? 0) === k).map((a) => a.name ?? a);
+    if (apps.length) rows.push([t('meta.apps'), apps.map((a) => iso(a, 30)).join(', '), false]);
+    return { name: d.file.name, rows };
+  }).filter((sec) => sec.rows.length);
+
+  el.metaDetails.hidden = !sections.length;
+  el.metaList.replaceChildren(...sections.map((sec) => {
+    const frag = document.createDocumentFragment();
+    if (files.length > 1) frag.append(Object.assign(document.createElement('h4'), { textContent: sec.name }));
+    const dl = document.createElement('dl');
+    for (const [label, value, kept] of sec.rows) {
+      const dt = Object.assign(document.createElement('dt'), { textContent: label });
+      const dd = Object.assign(document.createElement('dd'), { textContent: value });
+      const removed = el.strip.checked && !kept;
+      dd.append(' ', Object.assign(document.createElement('span'), { className: `mtag ${removed ? 'gone' : 'kept'}`, textContent: t(removed ? 'meta.removed' : 'meta.kept') }));
+      dl.append(dt, dd);
+    }
+    frag.append(dl);
+    return frag;
+  }));
+}
+
+/* ---------- existing digital signatures, photo details ---------- */
 
 // Exporting rewrites the file, which breaks any digital signature in it, so
-// say so up front. pdf.js can tell there are signature fields but not whether
-// they're signed, so only then is mupdf asked to look.
-async function checkSignatures(my) {
-  let any = false;
+// say so up front; and photo details hide inside images, where pdf.js can't
+// look. Both need mupdf, which means a copy of every file in a worker, so on
+// devices where the file is large it only runs when pdf.js sees signature
+// fields (it can't tell whether they're signed).
+async function inspectFiles(my) {
+  let sigFields = false;
   for (const d of state.files) {
     const fields = await d.pdf.getFieldObjects().catch(() => null);
     if (my !== session) return;
-    any ||= !!fields && Object.values(fields).flat().some((f) => f.type === 'signature');
+    sigFields ||= !!fields && Object.values(fields).flat().some((f) => f.type === 'signature');
   }
-  if (!any) return;
+  if (state.large && !sigFields) return;
   const src = await readSources();
   if (my !== session) return;
   try {
-    const { signed } = await oneShot('inspect', src, {});
+    const found = await oneShot('inspect', src, {});
     if (my !== session) return;
-    state.signed = signed;
+    state.signed = found.signed;
+    state.found = found;
     showSigWarn();
+    showStripHint();
+    renderHidden();
   } catch (err) {
-    console.warn('signature check failed', err);
+    console.warn('inspection failed', err);
   }
 }
 
@@ -1428,7 +1500,7 @@ el.lang.addEventListener('change', () => {
 function rerender() {
   showVersion();
   if (!el.pwCard.hidden) showPwText();
-  if (state) showStripHint();
+  if (state) { showStripHint(); renderHidden(); }
   if (state) renderSigns();
   showSigWarn();
   showCompressHint();

@@ -193,6 +193,10 @@
           <label class="check" id="keepPwRow" hidden><input type="checkbox" id="keepPw" checked> <span data-i18n="export.keepPw">Keep the password on the exported file</span></label>
           <label class="check"><input type="checkbox" id="strip" checked> <span data-i18n="export.strip">Remove hidden details</span></label>
           <p class="hint" id="stripHint"></p>
+          <details class="hidden-details" id="metaDetails" hidden>
+            <summary data-i18n="meta.show">Show what's hidden</summary>
+            <div id="metaList"></div>
+          </details>
           <p class="estimate" id="estimate" hidden></p>
           <button class="btn primary wide" id="download" type="button" data-i18n="export.download">Download PDF</button>
           <div class="progress" id="saveProgress" hidden><div class="bar"><span id="saveBar"></span></div></div>

@@ -742,7 +742,7 @@ const infoOf = (bytes) => {
 test('says what hidden details a PDF has, and removes them on export', async ({ page }) => {
   await load(page, path.join(FIXTURES, 'with-author.pdf'));
   await expect(page.locator('#strip')).toBeChecked();
-  await expect(page.locator('#stripHint')).toContainText('This PDF has: author “Ada Example”, made with Keynote, dates.');
+  await expect(page.locator('#stripHint')).toContainText('This PDF has: author “Ada Example”, made with Keynote, dates, where a photo was taken.', { timeout: 30_000 });
   const info = infoOf(await download(page));
   expect(info.Author).toBeUndefined();
   expect(info.Creator).toBeUndefined();
@@ -892,4 +892,27 @@ test('asks for the password of the protected file among several', async ({ page 
   expect(out.needsPassword()).toBe(true);
   expect(out.authenticatePassword('open')).toBeTruthy();
   expect(out.countPages()).toBe(6);
+});
+
+test('shows the hidden details, and which ones the export removes', async ({ page }) => {
+  await load(page, path.join(FIXTURES, 'with-author.pdf'));
+  const details = page.locator('#metaDetails');
+  await expect(details.locator('summary')).toHaveText("Show what's hidden");
+  await details.locator('summary').click();
+  const row = (label) => details.locator('dt', { hasText: label }).locator('xpath=following-sibling::dd[1]');
+  await expect(row('Author')).toHaveText('Ada Example removed');
+  await expect(row('Title')).toHaveText('Deck kept');
+  await expect(row('Made with')).toHaveText('Keynote removed');
+  await expect(row('Created')).toContainText('2026');
+  // The photo's camera, time and place, read from inside the JPEG.
+  await expect(row('Photo 1')).toHaveText('Apple iPhone 15 Pro · taken 12 Mar 2026, 14:02 · at 32.08000, 34.78111 · edited with 17.4 removed', { timeout: 30_000 });
+  await page.uncheck('#strip');
+  await expect(row('Author')).toHaveText('Ada Example kept');
+  await expect(row('Photo 1')).toContainText('kept');
+});
+
+test('no hidden details panel when there is nothing to show', async ({ page }) => {
+  await load(page);
+  await expect(page.locator('#estimate')).toContainText('≈', { timeout: 30_000 });
+  await expect(page.locator('#metaDetails')).toBeHidden();
 });

@@ -61,5 +61,5 @@ test('estimates and inspects merged files', async () => {
   const est = await estimateSizes(mupdf, sources, { presets: [] });
   const { bytes } = await processPdf(mupdf, sources, {});
   assert.equal(est.none, bytes.length);
-  assert.deepEqual(inspectPdf(mupdf, [{ bytes: a() }, { bytes: signedPdf(2) }, { bytes: signedPdf(1) }]), { signed: 3 });
+  assert.equal(inspectPdf(mupdf, [{ bytes: a() }, { bytes: signedPdf(2) }, { bytes: signedPdf(1) }]).signed, 3);
 });

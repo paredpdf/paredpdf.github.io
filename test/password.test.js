@@ -31,6 +31,6 @@ test('removes the password when asked', async () => {
 test('the estimate and the signature check use the password too', async () => {
   const est = await estimateSizes(mupdf, locked(), { password: 'open', presets: [] });
   assert.ok(est.none > 0);
-  assert.deepEqual(inspectPdf(mupdf, locked(), 'open'), { signed: 0 });
+  assert.equal(inspectPdf(mupdf, locked(), 'open').signed, 0);
   assert.throws(() => inspectPdf(mupdf, locked()), (e) => e.code === 'password');
 });

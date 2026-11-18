@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mupdf, photoPixmap, signedPdf } from '../fixtures.js';
+import { mupdf, photoPixmap, signedPdf, exifJpeg } from '../fixtures.js';
 
 export const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), '.fixtures');
 export const SLIDE = { x: 253.6562, w: 334.6875 }; // a 9:16 slide centred on A4 landscape
@@ -80,6 +80,10 @@ export default function globalSetup() {
     info.put('Creator', doc.newString('Keynote'));
     info.put('CreationDate', doc.newString('D:20260101120000Z'));
     doc.getTrailer().put('Info', info);
+    // A phone photo on the first page, carrying its camera and location.
+    const page = doc.findPage(0);
+    page.get('Resources').get('XObject').put('Ph0', doc.addImage(new mupdf.Image(exifJpeg())));
+    page.put('Contents', [page.get('Contents'), doc.addStream('q 120 0 0 90 300 60 cm /Ph0 Do Q', {})]);
     fs.writeFileSync(path.join(FIXTURES, 'with-author.pdf'), doc.saveToBuffer('').asUint8Array().slice());
   }
   fs.writeFileSync(path.join(FIXTURES, 'signature.png'), signaturePhoto());

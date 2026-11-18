@@ -129,3 +129,51 @@ export function signedPdf(n = 1, { unsigned = 0, nested = false } = {}) {
   // compressed object streams.
   return doc.saveToBuffer('compress=yes,garbage=yes,objstms=yes').asUint8Array().slice();
 }
+
+// A JPEG photo with real EXIF data: camera, software, date taken and GPS.
+// `le` picks the byte order ("II" or "MM"); cameras use both.
+export function exifJpeg({ make = 'Apple', model = 'iPhone 15 Pro', software = '17.4', taken = '2026:03:12 14:02:11',
+  lat = [32, 4, 48], latRef = 'N', lon = [34, 46, 52], lonRef = 'E', le = true } = {}) {
+  // Tags as [tag, type, value]: type 2 ASCII, 4 LONG, 5 RATIONAL (array of numbers).
+  const build = (ifds) => {
+    // Layout: header, then each IFD followed by its out-of-line data.
+    const bytes = [];
+    const w16 = (v, at) => { const b = le ? [v & 255, v >> 8] : [v >> 8, v & 255]; if (at == null) bytes.push(...b); else bytes.splice(at, 2, ...b); };
+    const w32 = (v, at) => { const b = le ? [v & 255, (v >> 8) & 255, (v >> 16) & 255, v >>> 24] : [v >>> 24, (v >> 16) & 255, (v >> 8) & 255, v & 255]; if (at == null) bytes.push(...b); else bytes.splice(at, 4, ...b); };
+    bytes.push(...(le ? [0x49, 0x49] : [0x4d, 0x4d]));
+    w16(42); w32(8);
+    const offsets = {};
+    for (const [name, entries] of ifds) {
+      offsets[name] = bytes.length;
+      const data = [];
+      const dataStart = bytes.length + 2 + entries.length * 12 + 4;
+      w16(entries.length);
+      for (const [tag, type, value] of entries) {
+        w16(tag); w16(type);
+        let raw;
+        if (type === 2) raw = [...new TextEncoder().encode(value), 0];
+        else if (type === 4) raw = null;
+        else if (type === 5) raw = value.flatMap((x) => { const t = []; const p = (v) => t.push(...(le ? [v & 255, (v >> 8) & 255, (v >> 16) & 255, v >>> 24] : [v >>> 24, (v >> 16) & 255, (v >> 8) & 255, v & 255])); p(Math.round(x * 100)); p(100); return t; });
+        w32(type === 5 ? value.length : type === 2 ? raw.length : 1);
+        if (type === 4) w32(typeof value === 'string' ? 0 : value); // pointers patched below
+        else if (raw.length <= 4) { bytes.push(...raw, ...Array(4 - raw.length).fill(0)); }
+        else { w32(dataStart + data.length); data.push(...raw); }
+        if (type === 4 && typeof value === 'string') entries.patch = [...(entries.patch ?? []), [bytes.length - 4, value]];
+      }
+      w32(0);
+      bytes.push(...data);
+      for (const [at, target] of entries.patch ?? []) offsets[`@${at}`] = target;
+    }
+    for (const [k, target] of Object.entries(offsets)) if (k.startsWith('@')) w32(offsets[target], Number(k.slice(1)));
+    return bytes;
+  };
+  const tiff = build([
+    ['ifd0', [[0x010f, 2, make], [0x0110, 2, model], [0x0131, 2, software], [0x8769, 4, 'exif'], [0x8825, 4, 'gps']]],
+    ['exif', [[0x9003, 2, taken]]],
+    ['gps', [[1, 2, latRef], [2, 5, lat], [3, 2, lonRef], [4, 5, lon]]],
+  ]);
+  const body = [...new TextEncoder().encode('Exif\0\0'), ...tiff];
+  const app1 = [0xff, 0xe1, (body.length + 2) >> 8, (body.length + 2) & 255, ...body];
+  const jpeg = photoPixmap(320, 240, 9).asJPEG(80, false).slice();
+  return Uint8Array.from([...jpeg.subarray(0, 2), ...app1, ...jpeg.subarray(2)]);
+}
