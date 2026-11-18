@@ -55,6 +55,7 @@ npm run test:e2e -- --project=desktop --project=firefox   # some of them
   - **Skipped images:** 1-bit, tiny, and already-JPEG images at a sensible resolution. Also lossless images that compress well (logos, screenshots), since JPEG would only blur them.
   - Soft masks (transparency) are resized along with their image.
   - Saves with garbage collection, so skipped pages' images are actually removed.
+  - **Existing signatures:** `inspectPdf` counts signed signature fields. Exporting rewrites the file, which breaks a digital signature, so the page warns first. pdf.js spots signature fields cheaply, and mupdf is only asked when there are some, since pdf.js can't tell signed from empty.
   - **Size estimate:** `estimateSizes` predicts the exported size at each resolution before you export. The uncompressed size is a real save, so it's exact. For each resolution it encodes the three largest images that would be shrunk and assumes the rest compress to the same bytes per pixel. It runs in its own short-lived worker after analysis and when the page selection changes, and is skipped for files too large for the device.
 - `sw.js` is the service worker that makes the site work offline after the first visit. App files are network-first (so deploys show up on the next load), and `vendor/` is cache-first under a cache name that includes the library versions.
 - `export-worker.js` runs the engine off the main thread and uses the browser's JPEG encoder (4:2:0 chroma, much smaller than mupdf's 4:4:4).

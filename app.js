@@ -27,7 +27,7 @@ const el = Object.fromEntries([
   'fname', 'fmeta', 'progress', 'progressBar', 'progressText',
   'detectCard', 'confidence', 'detectText', 'groupSel',
   'boxCard', 'scopeAll', 'scopePage', 'scopeHint', 'orientP', 'orientL', 'chips', 'rSize', 'rMm', 'rRatio',
-  'exportCard', 'memWarn', 'compress', 'ppiField', 'ppi', 'compressHint', 'estimate', 'download', 'saveProgress', 'saveBar', 'saveText',
+  'exportCard', 'memWarn', 'sigWarn', 'compress', 'ppiField', 'ppi', 'compressHint', 'estimate', 'download', 'saveProgress', 'saveBar', 'saveText',
   'reset', 'error', 'lang', 'version', 'versionLink',
 ].map((id) => [id, $(id)]));
 
@@ -173,6 +173,7 @@ async function analyse(my) {
   refreshPanel();
   warmWorker();
   scheduleEstimate(0);
+  checkSignatures(my);
 }
 
 // The outermost rectangular clip on the page that could be the real page,
@@ -758,33 +759,65 @@ async function runEstimate(key, keep) {
   const my = session;
   const data = new Uint8Array(await state.file.arrayBuffer());
   if (my !== session || estimateKey !== key) return;
-  const w = new Worker(new URL('./export-worker.js', import.meta.url), { type: 'module' });
-  estimateWorker = w;
+  let w = null;
   try {
-    const sizes = await new Promise((resolve, reject) => {
-      w.onmessage = (e) => {
-        const m = e.data;
-        if (m.type === 'ready') post();
-        else if (m.type === 'done') resolve(m.sizes);
-        else if (m.type === 'error') reject(new Error(m.message));
-      };
-      w.onerror = (e) => reject(new Error(e.message || 'estimate failed'));
-      // Messages sent before the worker has loaded mupdf can be lost, so wait
-      // for "ready". Crop boxes don't change the size noticeably; the page
-      // subset does, so only that is sent.
-      const post = () => w.postMessage({ id: 0, kind: 'estimate', bytes: data, opts: {
-        keep, presets: PRESETS.map((ppi) => ({ ppi, quality: QUALITY[ppi] ?? 78 })),
-      } }, [data.buffer]);
-    });
+    // Crop boxes don't change the size noticeably; the page subset does, so
+    // only that is sent.
+    const sizes = await oneShot('estimate', data, {
+      keep, presets: PRESETS.map((ppi) => ({ ppi, quality: QUALITY[ppi] ?? 78 })),
+    }, (x) => { w = x; estimateWorker = x; });
     if (estimateWorker !== w || my !== session) return;
     estimate = { key, sizes };
   } catch (err) {
     console.warn('size estimate failed', err);
     if (estimateWorker === w) estimate = null;
   } finally {
-    w.terminate();
     if (estimateWorker === w) { estimateWorker = null; showEstimate(); }
   }
+}
+
+// Run one job in a worker of its own, thrown away afterwards so its memory
+// goes back to the browser. `bytes` is transferred, not copied. If the caller
+// terminates the worker (onStart hands it over), the promise never settles.
+function oneShot(kind, bytes, opts, onStart) {
+  const w = new Worker(new URL('./export-worker.js', import.meta.url), { type: 'module' });
+  onStart?.(w);
+  return new Promise((resolve, reject) => {
+    // Messages sent before the worker has loaded mupdf can be lost, so wait
+    // for "ready" before sending the job.
+    w.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === 'ready') w.postMessage({ id: 0, kind, bytes, opts }, [bytes.buffer]);
+      else if (m.type === 'done') resolve(m.result);
+      else if (m.type === 'error') reject(new Error(m.message));
+    };
+    w.onerror = (e) => reject(new Error(e.message || `${kind} failed`));
+  }).finally(() => w.terminate());
+}
+
+/* ---------- existing digital signatures ---------- */
+
+// Exporting rewrites the file, which breaks any digital signature in it, so
+// say so up front. pdf.js can tell there are signature fields but not whether
+// they're signed, so only then is mupdf asked to look.
+async function checkSignatures(my) {
+  const fields = await state.pdf.getFieldObjects().catch(() => null);
+  if (my !== session || !fields || !Object.values(fields).flat().some((f) => f.type === 'signature')) return;
+  const data = new Uint8Array(await state.file.arrayBuffer());
+  if (my !== session) return;
+  try {
+    const { signed } = await oneShot('inspect', data, {});
+    if (my !== session) return;
+    state.signed = signed;
+    showSigWarn();
+  } catch (err) {
+    console.warn('signature check failed', err);
+  }
+}
+
+function showSigWarn() {
+  el.sigWarn.hidden = !state?.signed;
+  if (state?.signed) el.sigWarn.textContent = t('export.sigWarn', { n: state.signed });
 }
 
 function showEstimate() {
@@ -975,6 +1008,7 @@ el.lang.addEventListener('change', () => {
 // Redraw every piece of text the app writes itself, in the current language.
 function rerender() {
   showVersion();
+  showSigWarn();
   showCompressHint();
   showEstimate();
   if (!state) return;

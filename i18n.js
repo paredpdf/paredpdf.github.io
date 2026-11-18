@@ -91,6 +91,9 @@ const STRINGS = {
 
     'export.title': 'Export',
     'export.memWarn': 'This is a large file for a phone or tablet. If the export fails, export fewer pages at a time.',
+    'export.sigWarn': ({ n }) => (n === 1
+      ? 'This PDF is digitally signed. Exporting rewrites the file, so the signature will no longer be valid. Keep the original if you need the signature.'
+      : `This PDF has ${n} digital signatures. Exporting rewrites the file, so they will no longer be valid. Keep the original if you need them.`),
     'export.compress': 'Compress images',
     'export.resolution': 'Image resolution',
     'export.ppi150': '150 ppi · smallest file',
@@ -204,6 +207,9 @@ const STRINGS = {
 
     'export.title': 'ייצוא',
     'export.memWarn': 'זה קובץ גדול לטלפון או לטאבלט. אם הייצוא נכשל, ייצאו פחות עמודים בכל פעם.',
+    'export.sigWarn': ({ n }) => (n === 1
+      ? 'קובץ ה־PDF הזה חתום דיגיטלית. הייצוא כותב את הקובץ מחדש, ולכן החתימה כבר לא תהיה תקפה. שמרו את המקור אם אתם צריכים את החתימה.'
+      : `בקובץ ה־PDF הזה יש ${n} חתימות דיגיטליות. הייצוא כותב את הקובץ מחדש, ולכן הן כבר לא יהיו תקפות. שמרו את המקור אם אתם צריכים אותן.`),
     'export.compress': 'לדחוס תמונות',
     'export.resolution': 'רזולוציית התמונות',
     'export.ppi150': '\u2066150 ppi\u2069 · הקובץ הקטן ביותר',
@@ -317,6 +323,9 @@ const STRINGS = {
 
     'export.title': 'التصدير',
     'export.memWarn': 'هذا ملف كبير على هاتف أو جهاز لوحي. إذا فشل التصدير، صدّر عددًا أقل من الصفحات في كل مرة.',
+    'export.sigWarn': ({ n }) => (n === 1
+      ? 'ملف PDF هذا موقّع رقميًا. التصدير يعيد كتابة الملف، لذا لن يبقى التوقيع صالحًا. احتفظ بالأصل إذا كنت تحتاج إلى التوقيع.'
+      : `في ملف PDF هذا ${n === 2 ? 'توقيعان رقميان' : n % 100 >= 3 && n % 100 <= 10 ? `${n} توقيعات رقمية` : `${n} توقيعًا رقميًا`}. التصدير يعيد كتابة الملف، لذا لن تبقى صالحة. احتفظ بالأصل إذا كنت تحتاج إليها.`),
     'export.compress': 'ضغط الصور',
     'export.resolution': 'دقة الصور',
     'export.ppi150': '⁦150 ppi⁩ · أصغر ملف',
@@ -430,6 +439,9 @@ const STRINGS = {
 
     'export.title': 'Exportar',
     'export.memWarn': 'Este archivo es grande para un móvil o una tableta. Si la exportación falla, exporta menos páginas cada vez.',
+    'export.sigWarn': ({ n }) => (n === 1
+      ? 'Este PDF está firmado digitalmente. Al exportar se reescribe el archivo, así que la firma dejará de ser válida. Conserva el original si necesitas la firma.'
+      : `Este PDF tiene ${n} firmas digitales. Al exportar se reescribe el archivo, así que dejarán de ser válidas. Conserva el original si las necesitas.`),
     'export.compress': 'Comprimir imágenes',
     'export.resolution': 'Resolución de las imágenes',
     'export.ppi150': '150 ppi · archivo más pequeño',

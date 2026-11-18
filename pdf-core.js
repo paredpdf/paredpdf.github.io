@@ -120,6 +120,37 @@ function saveBytes(doc) {
   return result;
 }
 
+/**
+ * Facts about the PDF that the page shows before export. For now, how many
+ * signature fields are signed: a digital signature covers the exact bytes of
+ * the file, so any export, which rewrites the file, breaks it.
+ */
+export function inspectPdf(mupdf, bytes) {
+  const doc = new mupdf.PDFDocument(bytes);
+  try {
+    let signed = 0;
+    const seen = new Set();
+    const walk = (field, ft, depth) => {
+      if (!field.isDictionary() || depth > 20) return;
+      if (field.isIndirect()) {
+        if (seen.has(field.asIndirect())) return;
+        seen.add(field.asIndirect());
+      }
+      const own = field.get('FT');
+      const type = own.isName() ? own.asName() : ft; // /FT is inherited from parents
+      const kids = field.get('Kids');
+      if (type === 'Sig' && field.get('V').isDictionary()) signed++;
+      if (kids.isArray()) for (let k = 0; k < kids.length; k++) walk(kids.get(k), type, depth + 1);
+    };
+    const form = doc.getTrailer().get('Root').get('AcroForm');
+    const fields = form.isDictionary() ? form.get('Fields') : null;
+    if (fields?.isArray()) for (let k = 0; k < fields.length; k++) walk(fields.get(k), null, 0);
+    return { signed };
+  } finally {
+    doc.destroy?.();
+  }
+}
+
 /* ---------- image usage: how large is each image drawn? ---------- */
 
 function collectImageUses(doc) {

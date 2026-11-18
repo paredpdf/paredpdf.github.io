@@ -1,6 +1,6 @@
 // Runs the export off the main thread so the page stays responsive.
 import * as mupdf from './vendor/mupdf/mupdf.js';
-import { processPdf, estimateSizes } from './pdf-core.js';
+import { processPdf, estimateSizes, inspectPdf } from './pdf-core.js';
 import { isMemoryError } from './limits.js';
 
 // Browser JPEG encoder: 4:2:0 chroma subsampling, much smaller than mupdf's.
@@ -23,9 +23,11 @@ self.onmessage = async (e) => {
   const full = { ...opts, encodeJpeg: typeof OffscreenCanvas === 'function' ? encodeJpeg : null };
   const progress = (p) => self.postMessage({ type: 'progress', id, ...p });
   try {
-    if (kind === 'estimate') {
-      const sizes = await estimateSizes(mupdf, take(e.data), full, progress);
-      self.postMessage({ type: 'done', id, sizes });
+    if (kind === 'estimate' || kind === 'inspect') {
+      const result = kind === 'estimate'
+        ? await estimateSizes(mupdf, take(e.data), full, progress)
+        : inspectPdf(mupdf, take(e.data));
+      self.postMessage({ type: 'done', id, result });
       return;
     }
     const r = await processPdf(mupdf, take(e.data), full, progress);

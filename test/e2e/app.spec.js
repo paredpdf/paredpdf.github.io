@@ -511,3 +511,21 @@ test('picks the language from the browser', async ({ browser }) => {
   await expect(page.locator('#lang')).toHaveValue('es');
   await context.close();
 });
+
+/* ---------- existing digital signatures ---------- */
+
+test('warns that exporting breaks an existing digital signature', async ({ page }) => {
+  await load(page, path.join(FIXTURES, 'signed.pdf'));
+  const warn = page.locator('#sigWarn');
+  await expect(warn).toHaveText(/^This PDF is digitally signed\. Exporting rewrites the file/, { timeout: 30_000 });
+  await page.selectOption('#lang', 'he');
+  await expect(warn).toContainText('חתום דיגיטלית');
+});
+
+test('no signature warning for an empty signature field or an ordinary PDF', async ({ page }) => {
+  for (const f of ['unsigned-field.pdf', 'letterboxed.pdf']) {
+    await load(page, path.join(FIXTURES, f));
+    await expect(page.locator('#estimate')).toContainText('≈', { timeout: 30_000 });
+    await expect(page.locator('#sigWarn')).toBeHidden();
+  }
+});

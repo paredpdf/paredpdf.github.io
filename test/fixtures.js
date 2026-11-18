@@ -83,3 +83,49 @@ export function inspect(bytes) {
   }
   return { pages, images };
 }
+
+// A PDF with `n` signed signature fields, shaped like a real signer's output
+// (the bytes aren't a valid signature; detection doesn't check). `unsigned`
+// adds empty signature fields; `nested` puts the fields under a parent field
+// that holds their /FT, as some form tools do.
+export function signedPdf(n = 1, { unsigned = 0, nested = false } = {}) {
+  const doc = new mupdf.PDFDocument(makePdf([{ W: 595, H: 842 }]));
+  const page = doc.findPage(0);
+  const fields = doc.newArray();
+  const annots = doc.newArray();
+  const parent = nested ? doc.addObject(doc.newDictionary()) : null;
+  for (let k = 0; k < n + unsigned; k++) {
+    const field = doc.addObject(doc.newDictionary());
+    field.put('Type', doc.newName('Annot'));
+    field.put('Subtype', doc.newName('Widget'));
+    if (!nested) field.put('FT', doc.newName('Sig'));
+    field.put('T', doc.newString(`Signature${k + 1}`));
+    field.put('Rect', [0, 0, 0, 0]);
+    field.put('P', page);
+    if (k < n) {
+      const sig = doc.addObject(doc.newDictionary());
+      sig.put('Type', doc.newName('Sig'));
+      sig.put('Filter', doc.newName('Adobe.PPKLite'));
+      sig.put('SubFilter', doc.newName('adbe.pkcs7.detached'));
+      sig.put('ByteRange', [0, 1000, 9000, 500]);
+      sig.put('Contents', doc.newByteString(new Uint8Array(64)));
+      field.put('V', sig);
+    }
+    if (parent) field.put('Parent', parent);
+    (parent ? (parent.get('Kids').isArray() ? parent.get('Kids') : (parent.put('Kids', doc.newArray()), parent.get('Kids'))) : fields).push(field);
+    annots.push(field);
+  }
+  if (parent) {
+    parent.put('T', doc.newString('Signatures'));
+    parent.put('FT', doc.newName('Sig'));
+    fields.push(parent);
+  }
+  page.put('Annots', annots);
+  const form = doc.newDictionary();
+  form.put('Fields', fields);
+  form.put('SigFlags', 3);
+  doc.getTrailer().get('Root').put('AcroForm', form);
+  // Compress everything we can, so the signature dictionaries end up inside
+  // compressed object streams.
+  return doc.saveToBuffer('compress=yes,garbage=yes,objstms=yes').asUint8Array().slice();
+}
