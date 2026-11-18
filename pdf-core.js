@@ -24,8 +24,8 @@ const SKIP_FILTERS = new Set(['JBIG2Decode', 'CCITTFaxDecode']);
  *                   time, location); the document title is kept,
  *                 stamps: [{ page: 0-based source page, rect: [x0, y0, x1, y1] in PDF
  *                   user space, png: Uint8Array }] images (signatures) drawn on
- *                   top of the page, upright as the page is shown before any
- *                   added rotation,
+ *                   top of the page, upright as the page finally shows (its
+ *                   own rotation plus `rotate`),
  *                 compress: null | { ppi, quality },
  *                 encodeJpeg?: async (rgb, w, h, quality) => Uint8Array }
  *                 (optional RGB encoder; the browser's uses 4:2:0 chroma
@@ -123,7 +123,7 @@ function prepare(mupdf, bytes, opts, progress) {
     for (const k of ['BleedBox', 'TrimBox', 'ArtBox']) page.delete(k);
   });
 
-  if (opts.stamps?.length) addStamps(mupdf, doc, opts.stamps, n);
+  if (opts.stamps?.length) addStamps(mupdf, doc, opts.stamps, n, opts.rotate);
 
   // Extra clockwise rotation per source page, added to any /Rotate it has.
   opts.rotate?.forEach((deg, i) => {
@@ -374,7 +374,7 @@ export function stripJpegMetadata(b) {
 
 /* ---------- stamps (signatures) ---------- */
 
-function addStamps(mupdf, doc, stamps, n) {
+function addStamps(mupdf, doc, stamps, n, extraRotate) {
   const byPage = new Map();
   for (const st of stamps) {
     if (!(st.page >= 0 && st.page < n)) throw new Error(`No page ${st.page + 1} to sign`);
@@ -382,8 +382,10 @@ function addStamps(mupdf, doc, stamps, n) {
   }
   for (const [i, list] of byPage) {
     const page = doc.findPage(i);
+    // Upright as the page finally shows: its own /Rotate plus any rotation
+    // added in Pared (applied after this).
     const rot = page.getInheritable('Rotate');
-    const deg = ((((rot.isNumber() ? rot.asNumber() : 0) % 360) + 360) % 360);
+    const deg = (((((rot.isNumber() ? rot.asNumber() : 0) + (extraRotate?.[i] ?? 0)) % 360) + 360) % 360);
 
     // The page gets its own Resources and XObject dictionaries, so pages
     // that share them (often via the page tree) aren't changed as well.

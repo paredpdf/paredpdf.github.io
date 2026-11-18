@@ -80,7 +80,9 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 .work { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; align-items: start; }
 .stage-col { min-width: 0; }
 .stage-wrap { background: var(--stage); border-radius: var(--radius); padding: 20px; display: grid; place-items: center; min-height: 300px; }
-.stage { position: relative; line-height: 0; touch-action: none; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+/* The stage is the page as stored; it turns inside a box sized to how it shows. */
+.stage-box { position: relative; }
+.stage { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(var(--rot, 0deg)); line-height: 0; touch-action: none; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
 .clip { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 1; }
 .shade { position: absolute; box-shadow: 0 0 0 9999px var(--shade); }
 .stage canvas { display: block; background: #fff; }
@@ -155,7 +157,7 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 
 /* Excluded page badge on the preview */
 .excluded-badge { position: absolute; z-index: 5; top: 12px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); font: 600 13px/1 var(--font); padding: 7px 12px; border-radius: 99px; pointer-events: none; }
-.stage.excluded canvas { opacity: .45; }
+.stage-box.excluded canvas { opacity: .45; }
 
 /* Pages */
 .pages { margin-top: 22px; }
@@ -217,7 +219,7 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 @media (pointer: coarse) { .sig-del, .sig-rs { opacity: 1; } }
 .sig-del { top: -12px; right: -12px; cursor: pointer; }
 .sig-rs { bottom: -12px; right: -12px; cursor: nwse-resize; }
-.stage.excluded .sig { opacity: .45; }
+.stage-box.excluded .sig { opacity: .45; }
 
 .dlg { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); padding: 20px; width: min(560px, calc(100vw - 32px)); box-shadow: 0 10px 40px rgba(0,0,0,.25); }
 .dlg::backdrop { background: rgba(20, 18, 15, .45); }

@@ -63,6 +63,7 @@
     <section id="work" class="work" hidden>
       <div class="stage-col">
         <div class="stage-wrap" id="stageWrap" dir="ltr">
+          <div class="stage-box" id="stageBox">
           <div class="stage" id="stage">
             <canvas id="canvas"></canvas>
             <div class="clip"><div class="shade" id="shade"></div></div>
@@ -73,6 +74,8 @@
               <div class="h c" data-h="nw"></div><div class="h c" data-h="ne"></div>
               <div class="h c" data-h="sw"></div><div class="h c" data-h="se"></div>
             </div>
+          </div>
+            <!-- Outside the stage, so they stay upright when the page turns. -->
             <div class="excluded-badge" id="excludedBadge" hidden data-i18n="stage.notExported">Not exported</div>
             <div class="excluded-badge" id="rotBadge" hidden></div>
           </div>

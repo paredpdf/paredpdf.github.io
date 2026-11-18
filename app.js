@@ -23,7 +23,7 @@ const QUALITY = { 150: 72, 200: 78, 300: 85 }; // JPEG quality per resolution pr
 
 const $ = (id) => document.getElementById(id);
 const el = Object.fromEntries([
-  'drop', 'file', 'pick', 'work', 'stageWrap', 'stage', 'canvas', 'crop', 'shade', 'contentOutline', 'excludedBadge', 'rotBadge',
+  'drop', 'file', 'pick', 'work', 'stageWrap', 'stageBox', 'stage', 'canvas', 'crop', 'shade', 'contentOutline', 'excludedBadge', 'rotBadge',
   'prev', 'next', 'pageLabel', 'includePage', 'showContent',
   'selCount', 'range', 'rangeErr', 'selAll', 'selNone', 'resetOrder', 'thumbs',
   'fname', 'fmeta', 'progress', 'progressBar', 'progressText',
@@ -413,10 +413,16 @@ async function showPage(n) {
   const pad = parseFloat(getComputedStyle(wrap).paddingLeft) * 2;
   const availW = wrap.clientWidth - pad;
   const availH = Math.max(320, window.innerHeight - 230);
-  const fit = Math.min(availW / g.W, availH / g.H);
+  // Show the page turned as it will be exported: fit the turned shape, and
+  // size the box around the stage to it.
+  const deg = state.rot[n] || 0, side = deg % 180 !== 0;
+  const fit = Math.min(availW / (side ? g.H : g.W), availH / (side ? g.W : g.H));
   const cssW = Math.floor(g.W * fit), cssH = Math.floor(g.H * fit);
   el.stage.style.width = `${cssW}px`;
   el.stage.style.height = `${cssH}px`;
+  el.stage.style.setProperty('--rot', `${deg}deg`);
+  el.stageBox.style.width = `${side ? cssH : cssW}px`;
+  el.stageBox.style.height = `${side ? cssW : cssH}px`;
   placeOverlay();
   renderSigns();
   refreshPanel(); // the new page may have its own crop
@@ -461,6 +467,14 @@ function setRect(node, b) {
   node.style.height = `${(b.y1 - b.y0) * 100}%`;
 }
 
+// A movement on screen, in the page's own 0..1 units: the stage may be
+// turned, so undo its clockwise turn first. Uses the stage's own size, not
+// its on-screen bounding box, which a turn swaps.
+function screenToSheet(dx, dy) {
+  const r = ((state.rot[state.page] || 0) * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
+  return [(dx * c + dy * s) / el.stage.offsetWidth, (-dx * s + dy * c) / el.stage.offsetHeight];
+}
+
 /* ---------- dragging the crop box ---------- */
 
 let drag = null, dragFrame = 0;
@@ -469,12 +483,11 @@ el.crop.addEventListener('pointerdown', (e) => {
   if (!c) return;
   e.preventDefault();
   el.crop.setPointerCapture(e.pointerId);
-  const r = el.stage.getBoundingClientRect();
-  drag = { c, h: e.target.dataset.h || 'move', sx: e.clientX, sy: e.clientY, w: r.width, h0: r.height, start: { ...c.box } };
+  drag = { c, h: e.target.dataset.h || 'move', sx: e.clientX, sy: e.clientY, start: { ...c.box } };
 });
 el.crop.addEventListener('pointermove', (e) => {
   if (!drag) return;
-  const dx = (e.clientX - drag.sx) / drag.w, dy = (e.clientY - drag.sy) / drag.h0;
+  const [dx, dy] = screenToSheet(e.clientX - drag.sx, e.clientY - drag.sy);
   const s = drag.start, b = { ...s }, MIN = 0.03;
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   if (drag.h === 'move') {
@@ -722,6 +735,7 @@ el.thumbs.addEventListener('click', (e) => {
     state.rot[p] = (state.rot[p] + 90) % 360;
     layoutThumbs(state.groupOf[p]);
     updateCurrentInclusion();
+    if (p === state.page) showPage(p); // the preview turns too
   } else if (e.target.closest('.tclip')) {
     showPage(p);
   }
@@ -780,7 +794,7 @@ function updateCurrentInclusion() {
   const deg = state.rot[state.page];
   el.rotBadge.hidden = !on || !deg;
   el.rotBadge.textContent = t('stage.turned', { deg });
-  el.stage.classList.toggle('excluded', !on);
+  el.stageBox.classList.toggle('excluded', !on);
 }
 
 /* ---------- signatures ---------- */
@@ -886,22 +900,37 @@ el.sigUse.addEventListener('click', async () => {
 });
 
 // Put a new signature in the middle of the current page's crop area, about a
-// third of its width, keeping the signature's shape.
+// third of its width as shown, keeping the signature's shape. On a turned
+// page "as shown" is across the page's own height, so the box is swapped.
 function placeSignature(sig) {
   const crop = cropOf(state.page).box;
-  const sa = stageAspect();
-  let w = (crop.x1 - crop.x0) * 0.35, h = (w * sa) / sig.aspect;
-  const maxH = (crop.y1 - crop.y0) * 0.25;
-  if (h > maxH) { w *= maxH / h; h = maxH; }
+  const SW = el.stage.offsetWidth, SH = el.stage.offsetHeight;
+  const side = (state.rot[state.page] || 0) % 180 !== 0;
+  const cw = (crop.x1 - crop.x0) * SW, ch = (crop.y1 - crop.y0) * SH;
+  const [viewW, viewH] = side ? [ch, cw] : [cw, ch];
+  let w = viewW * 0.35, h = w / sig.aspect;
+  if (h > viewH * 0.25) { w *= (viewH * 0.25) / h; h = viewH * 0.25; }
+  const [bw, bh] = side ? [h / SW, w / SH] : [w / SW, h / SH];
   const cx = (crop.x0 + crop.x1) / 2, cy = (crop.y0 + crop.y1) / 2;
-  const item = { page: state.page, sig, box: { x0: cx - w / 2, y0: cy - h / 2, x1: cx + w / 2, y1: cy + h / 2 } };
+  const item = { page: state.page, sig, box: { x0: cx - bw / 2, y0: cy - bh / 2, x1: cx + bw / 2, y1: cy + bh / 2 } };
   state.signs.push(item);
   renderSigns();
   signNode(item)?.focus();
 }
 
-// Width / height of the preview, so boxes in 0..1 units keep a shape on screen.
-function stageAspect() { const g = curGroup(); return g.W / g.H; }
+// Position a signature's box on the stage. On a turned page the image is
+// turned back, so it reads upright as the page is shown and exported.
+function setSigRect(node) {
+  const { box, page } = node.item;
+  setRect(node, box);
+  const img = node.querySelector('img');
+  const deg = state.rot[page] || 0;
+  if (!deg) { img.removeAttribute('style'); return; }
+  const w = (box.x1 - box.x0) * el.stage.offsetWidth, h = (box.y1 - box.y0) * el.stage.offsetHeight;
+  const [iw, ih] = deg % 180 ? [h, w] : [w, h];
+  Object.assign(img.style, { position: 'absolute', left: '50%', top: '50%', width: `${iw}px`, height: `${ih}px`,
+    transform: `translate(-50%, -50%) rotate(${-deg}deg)` });
+}
 
 const signNodes = new Map(); // item -> element on the stage
 
@@ -927,8 +956,8 @@ function renderSigns() {
     rs.className = 'sig-rs';
     rs.title = t('sign.resize');
     node.append(img, del, rs);
-    setRect(node, item.box);
     node.item = item;
+    setSigRect(node);
     el.stage.append(node);
     signNodes.set(item, node);
   }
@@ -957,13 +986,13 @@ el.stage.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   node.focus();
   node.setPointerCapture(e.pointerId);
-  const r = el.stage.getBoundingClientRect();
   signDrag = { node, item: node.item, id: e.pointerId, resize: !!e.target.closest('.sig-rs'),
-    sx: e.clientX, sy: e.clientY, w: r.width, h: r.height, start: { ...node.item.box } };
+    sx: e.clientX, sy: e.clientY, w: el.stage.offsetWidth, h: el.stage.offsetHeight, start: { ...node.item.box } };
 });
 el.stage.addEventListener('pointermove', (e) => {
   if (!signDrag || e.pointerId !== signDrag.id) return;
-  const d = signDrag, dx = (e.clientX - d.sx) / d.w, dy = (e.clientY - d.sy) / d.h, b = d.start;
+  const d = signDrag, b = d.start;
+  const [dx, dy] = screenToSheet(e.clientX - d.sx, e.clientY - d.sy);
   let nb;
   if (d.resize) {
     // Corner drag: grow or shrink, keeping the signature's shape.
@@ -978,7 +1007,7 @@ el.stage.addEventListener('pointermove', (e) => {
     nb = { x0: b.x0 + dx, y0: b.y0 + dy, x1: b.x1 + dx, y1: b.y1 + dy };
   }
   d.item.box = clampSign(d.item, nb);
-  setRect(d.node, d.item.box);
+  setSigRect(d.node);
 });
 const endSignDrag = (e) => { if (signDrag && e.pointerId === signDrag.id) signDrag = null; };
 el.stage.addEventListener('pointerup', endSignDrag);
@@ -992,12 +1021,15 @@ el.stage.addEventListener('keydown', (e) => {
   if (!node || e.target !== node) return;
   const item = node.item, b = item.box, step = e.shiftKey ? 0.05 : 0.005;
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); removeSign(item); return; }
-  const mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
-  if (!mv) return;
+  // Arrows move it on screen, whichever way the page is turned.
+  const px = step * el.stage.offsetWidth;
+  const key = { ArrowLeft: [-px, 0], ArrowRight: [px, 0], ArrowUp: [0, -px], ArrowDown: [0, px] }[e.key];
+  if (!key) return;
   e.preventDefault();
   e.stopPropagation(); // not the page arrows
+  const mv = screenToSheet(...key);
   item.box = clampSign(item, { x0: b.x0 + mv[0], y0: b.y0 + mv[1], x1: b.x1 + mv[0], y1: b.y1 + mv[1] });
-  setRect(node, item.box);
+  setSigRect(node);
 });
 
 // What the engine needs: each signature as a PNG sized for 300 ppi at its
@@ -1010,8 +1042,11 @@ async function signatureStamps() {
     const b = item.box;
     const [ax, ay] = vp.convertToPdfPoint(b.x0 * vp.width, b.y0 * vp.height);
     const [bx, by] = vp.convertToPdfPoint(b.x1 * vp.width, b.y1 * vp.height);
-    const k = Math.min(300 / 72, 2400 / ((b.x1 - b.x0) * vp.width));
-    const png = await signaturePng(item.sig, (b.x1 - b.x0) * vp.width * k, (b.y1 - b.y0) * vp.height * k);
+    // Drawn the way it shows: on a page turned a quarter, across the box.
+    const side = (state.rot[item.page] || 0) % 180 !== 0;
+    const [pw, ph] = side ? [(b.y1 - b.y0) * vp.height, (b.x1 - b.x0) * vp.width] : [(b.x1 - b.x0) * vp.width, (b.y1 - b.y0) * vp.height];
+    const k = Math.min(300 / 72, 2400 / pw);
+    const png = await signaturePng(item.sig, pw * k, ph * k);
     stamps.push({ page: item.page - 1, rect: [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)], png });
   }
   return stamps;

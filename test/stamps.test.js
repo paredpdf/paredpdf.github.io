@@ -92,15 +92,16 @@ test('signs only the given page, even when pages share their resources', async (
   assert.ok(look(bytes, 1).red);
 });
 
-test('signature pages follow reordering, and turn with an added rotation', async () => {
+test('signature pages follow reordering, and stay upright on a page turned in Pared', async () => {
   const src = makePdf([{ W: 600, H: 400 }, { W: 600, H: 400 }]);
   const { bytes } = await processPdf(mupdf, src, {
     keep: [1, 0], rotate: [0, 90], stamps: [{ page: 1, rect: [100, 100, 220, 180], png: PNG }],
   });
   const first = look(bytes, 0); // source page 2, turned 90° clockwise
   assert.ok(first.red && look(bytes, 1).red === null);
-  // Turned with the page: red is now to the right of blue.
-  assert.ok(first.red.x > first.blue.x + 10);
+  // Placed on the turned page, so upright on it: red still above blue.
+  assert.ok(first.red.y < first.blue.y - 10, JSON.stringify(first));
+  assert.ok(Math.abs(first.red.x - first.blue.x) < 2);
 });
 
 test('several signatures on one page, and compression leaves them sharp', async () => {
@@ -115,4 +116,13 @@ test('several signatures on one page, and compression leaves them sharp', async 
 
 test('refuses a signature on a page that does not exist', async () => {
   await assert.rejects(processPdf(mupdf, makePdf([{ W: 600, H: 400 }]), { stamps: [{ page: 3, rect: [0, 0, 10, 10], png: PNG }] }), /No page 4/);
+});
+
+test('upright for a page with its own rotation plus one added in Pared', async () => {
+  const doc = new mupdf.PDFDocument(makePdf([{ W: 600, H: 400 }]));
+  doc.findPage(0).put('Rotate', 90);
+  const src = doc.saveToBuffer('').asUint8Array().slice();
+  const { bytes } = await processPdf(mupdf, src, { rotate: [90], stamps: [{ page: 0, rect: [200, 100, 320, 180], png: PNG }] });
+  const { red, blue } = look(bytes);
+  assert.ok(red.y < blue.y - 10 && Math.abs(red.x - blue.x) < 2, JSON.stringify({ red, blue }));
 });

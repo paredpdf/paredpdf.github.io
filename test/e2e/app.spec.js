@@ -916,3 +916,56 @@ test('no hidden details panel when there is nothing to show', async ({ page }) =
   await expect(page.locator('#estimate')).toContainText('≈', { timeout: 30_000 });
   await expect(page.locator('#metaDetails')).toBeHidden();
 });
+
+/* ---------- turned pages in the preview ---------- */
+
+async function turnFirstPage(page) {
+  await load(page);
+  const before = await page.locator('#stageBox').boundingBox();
+  await page.click('.thumb[data-p="1"] .trot');
+  await expect(page.locator('#rotBadge')).toBeVisible();
+  // The preview turns: the box around it takes the turned shape.
+  await expect.poll(async () => {
+    const b = await page.locator('#stageBox').boundingBox();
+    return b.width > b.height !== before.width > before.height;
+  }).toBe(true);
+}
+
+test('the preview shows a page turned as it will be exported', async ({ page }) => {
+  await turnFirstPage(page);
+  await expect(page.locator('#stage')).toHaveCSS('transform', /matrix\(/);
+  // The badge stays upright, outside the turned page.
+  expect(await page.locator('#rotBadge').evaluate((b) => b.closest('#stage'))).toBeNull();
+});
+
+test('dragging the crop on a turned page follows the finger', async ({ page }) => {
+  await turnFirstPage(page);
+  const size = async () => (await page.locator('#rSize').textContent()).match(/([\d.]+) × ([\d.]+)/).slice(1).map(Number);
+  const [w0, h0] = await size();
+  // Turned a quarter clockwise, the page's top edge shows on the right.
+  await page.locator('#stageBox').scrollIntoViewIfNeeded();
+  const top = await page.locator('.h[data-h="n"]').boundingBox();
+  await page.mouse.move(top.x + top.width / 2, top.y + top.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(top.x + top.width / 2 - 60, top.y + top.height / 2, { steps: 6 });
+  await page.mouse.up();
+  const [w1, h1] = await size();
+  expect(w1).toBeCloseTo(w0, 0);
+  expect(h1).toBeLessThan(h0 - 20); // moved inward: the page got shorter
+});
+
+test('a signature placed on a turned page reads upright there, and in the export', async ({ page }) => {
+  await turnFirstPage(page);
+  await page.click('#addSign');
+  await page.click('#tabType');
+  await page.fill('#sigName', 'Ada Lovelace');
+  await page.click('#sigUse');
+  // Wide on screen, as a name is, though the page underneath is turned.
+  const shown = await page.locator('.sig img').boundingBox();
+  expect(shown.width).toBeGreaterThan(shown.height * 2);
+  await expect(page.locator('.sig img')).toHaveCSS('transform', /matrix/);
+  // In the PDF's own coordinates the box is tall: it's drawn across the turned page.
+  const [p0] = signatures(await download(page));
+  const [x0, y0, x1, y1] = p0.rects[0];
+  expect(y1 - y0).toBeGreaterThan((x1 - x0) * 2);
+});
