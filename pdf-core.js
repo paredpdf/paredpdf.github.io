@@ -7,13 +7,18 @@ const SKIP_FILTERS = new Set(['JBIG2Decode', 'CCITTFaxDecode']);
 
 /**
  * @param mupdf  the mupdf.js module
- * @param bytes  Uint8Array of the source PDF
+ * @param bytes  Uint8Array of the source PDF, or several to merge in order:
+ *               [{ bytes, password? }]. Page indices in opts then count
+ *               through all of them.
  * @param opts   { boxes: (number[4]|null)[] per source page (PDF user space),
  *                 keep: 0-based source page indices to keep, in order,
  *                 rotate: degrees clockwise to add, per source page (multiples of 90),
  *                 password: the PDF's password, if it has one,
  *                 removePassword: save without encryption (otherwise a protected
- *                   PDF keeps its original passwords and permissions),
+ *                   PDF keeps its original passwords and permissions; merged
+ *                   files are protected with the first password given),
+ *                 split: [[output page indices], ...] to also return one PDF per
+ *                   group as `parts`,
  *                 stripMetadata: remove author, software, dates, XMP metadata, editing
  *                   programs' private data, and photo metadata inside JPEGs (camera,
  *                   time, location); the document title is kept,
@@ -34,9 +39,21 @@ export async function processPdf(mupdf, bytes, opts, progress = () => {}) {
   const stats = opts.compress ? await compressImages(mupdf, doc, opts.compress, opts.encodeJpeg, progress) : null;
 
   progress({ phase: 'save' });
-  const result = saveBytes(doc, opts.removePassword);
+  const result = saveBytes(doc, opts.removePassword, doc.mergedPassword);
+  const password = doc.mergedPassword ?? opts.password;
   doc.destroy?.();
-  return { bytes: result, stats };
+  if (!opts.split) return { bytes: result, stats };
+
+  // Each part is cut from the finished file, so they share its work.
+  const parts = [];
+  opts.split.forEach((group, k) => {
+    progress({ phase: 'split', done: k, total: opts.split.length });
+    const part = openDoc(mupdf, result, password);
+    part.rearrangePages(group);
+    parts.push(saveBytes(part, opts.removePassword));
+    part.destroy?.();
+  });
+  return { bytes: result, stats, parts };
 }
 
 /**
@@ -82,7 +99,7 @@ export async function estimateSizes(mupdf, bytes, opts, progress = () => {}) {
       savings.push(saving);
     }
     progress({ phase: 'save' });
-    const none = saveBytes(doc, opts.removePassword).length;
+    const none = saveBytes(doc, opts.removePassword, doc.mergedPassword).length;
     return { none, presets: savings.map((s) => Math.max(0, Math.round(none - s))) };
   } finally {
     doc.destroy?.();
@@ -94,7 +111,7 @@ const ESTIMATE_SAMPLES = 3;
 // Open the PDF and apply crop boxes, rotation and the page subset/order.
 function prepare(mupdf, bytes, opts, progress) {
   progress({ phase: 'open' });
-  const doc = openDoc(mupdf, bytes, opts.password);
+  const doc = Array.isArray(bytes) ? openMerged(mupdf, bytes) : openDoc(mupdf, bytes, opts.password);
   bytes = null; // mupdf has its own copy; let the caller's buffer be freed
   const n = doc.countPages();
 
@@ -137,10 +154,32 @@ function openDoc(mupdf, bytes, password) {
   return doc;
 }
 
+// Several PDFs as one document: the first, with every page of the others
+// appended. A graft map copies each file's shared fonts and images once.
+function openMerged(mupdf, sources) {
+  const [first, ...rest] = sources;
+  const doc = openDoc(mupdf, first.bytes, first.password);
+  for (const s of rest) {
+    const src = openDoc(mupdf, s.bytes, s.password);
+    const map = doc.newGraftMap();
+    for (let i = 0, n = src.countPages(); i < n; i++) map.graftPage(-1, src, i);
+    map.destroy?.();
+    src.destroy?.();
+  }
+  if (rest.length) {
+    // Appended files bring no protection of their own; if any was protected,
+    // protect the whole with the first password given.
+    doc.mergedPassword = sources.find((s) => s.password)?.password;
+  }
+  return doc;
+}
+
 // A protected PDF keeps its encryption (original passwords and permissions)
-// unless removePassword.
-function saveBytes(doc, removePassword = false) {
-  const out = doc.saveToBuffer(`garbage=deduplicate,compress=yes${removePassword ? ',decrypt' : ''}`);
+// unless removePassword. A merged one is encrypted with `reencrypt`.
+function saveBytes(doc, removePassword = false, reencrypt = undefined) {
+  const enc = removePassword ? ',decrypt'
+    : reencrypt ? `,encrypt=aes-256,user-password=${pdfOptValue(reencrypt)},owner-password=${pdfOptValue(reencrypt)}` : '';
+  const out = doc.saveToBuffer(`garbage=deduplicate,compress=yes${enc}`);
   const result = out.asUint8Array().slice();
   out.destroy?.();
   return result;
@@ -152,6 +191,10 @@ function saveBytes(doc, removePassword = false) {
  * the file, so any export, which rewrites the file, breaks it.
  */
 export function inspectPdf(mupdf, bytes, password) {
+  // Several files: inspect each and add up.
+  if (Array.isArray(bytes)) {
+    return { signed: bytes.reduce((t, src) => t + inspectPdf(mupdf, src.bytes, src.password).signed, 0) };
+  }
   const doc = openDoc(mupdf, bytes, password);
   try {
     let signed = 0;
@@ -296,6 +339,13 @@ export function uprightMatrix([x0, y0, x1, y1], deg) {
     case 270: return [0, -H, W, 0, x0, y1];
     default: return [W, 0, 0, H, x0, y0];
   }
+}
+
+// mupdf's save options are comma-separated key=value pairs, so a password
+// can't contain a comma there.
+function pdfOptValue(v) {
+  if (/[,=]/.test(v)) throw Object.assign(new Error('A password with a comma or = sign cannot be used to protect a merged file'), { code: 'password-chars' });
+  return v;
 }
 
 const num = (v) => String(Math.round(v * 1000) / 1000);
