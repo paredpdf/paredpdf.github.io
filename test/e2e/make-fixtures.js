@@ -69,6 +69,17 @@ export default function globalSetup() {
   fs.writeFileSync(path.join(FIXTURES, 'long.pdf'), letterboxed(120));
   fs.writeFileSync(path.join(FIXTURES, 'photos.pdf'), photos());
   fs.writeFileSync(path.join(FIXTURES, 'signed.pdf'), signedPdf(1));
+  {
+    // The usual letterboxed deck, with an author, the program and dates.
+    const doc = new mupdf.PDFDocument(letterboxed(2));
+    const info = doc.addObject(doc.newDictionary());
+    info.put('Title', doc.newString('Deck'));
+    info.put('Author', doc.newString('Ada Example'));
+    info.put('Creator', doc.newString('Keynote'));
+    info.put('CreationDate', doc.newString('D:20260101120000Z'));
+    doc.getTrailer().put('Info', info);
+    fs.writeFileSync(path.join(FIXTURES, 'with-author.pdf'), doc.saveToBuffer('').asUint8Array().slice());
+  }
   fs.writeFileSync(path.join(FIXTURES, 'signature.png'), signaturePhoto());
   fs.writeFileSync(path.join(FIXTURES, 'blank.png'), blankPhoto());
   fs.writeFileSync(path.join(FIXTURES, 'unsigned-field.pdf'), signedPdf(0, { unsigned: 1 }));

@@ -731,3 +731,33 @@ test('typing a signature works offline', async ({ page, context, browserName }) 
   await typeSignature(page, 'Ada', 'Dancing Script');
   expect(await page.evaluate(() => document.fonts.check('20px "Pared Dancing"', 'Ada'))).toBe(true);
 });
+
+/* ---------- hidden details ---------- */
+
+const infoOf = (bytes) => {
+  const info = new mupdf.PDFDocument(bytes).getTrailer().get('Info');
+  return info.isDictionary() ? info.resolve().asJS() : {};
+};
+
+test('says what hidden details a PDF has, and removes them on export', async ({ page }) => {
+  await load(page, path.join(FIXTURES, 'with-author.pdf'));
+  await expect(page.locator('#strip')).toBeChecked();
+  await expect(page.locator('#stripHint')).toContainText('This PDF has: author “Ada Example”, made with Keynote, dates.');
+  const info = infoOf(await download(page));
+  expect(info.Author).toBeUndefined();
+  expect(info.Creator).toBeUndefined();
+  expect(info.CreationDate).toBeUndefined();
+  expect(info.Title).toBe('Deck');
+});
+
+test('keeps hidden details when asked to', async ({ page }) => {
+  await load(page, path.join(FIXTURES, 'with-author.pdf'));
+  await page.uncheck('#strip');
+  await expect(page.locator('#stripHint')).toContainText('Hidden details are kept as they are.');
+  expect(infoOf(await download(page)).Author).toBe('Ada Example');
+});
+
+test('describes hidden details in Hebrew', async ({ page }) => {
+  await load(page, path.join(FIXTURES, 'with-author.pdf'), '/?lang=he');
+  await expect(page.locator('#stripHint')).toContainText('בקובץ הזה יש: מחבר ״\u2068Ada Example\u2069״');
+});

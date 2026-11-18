@@ -11,6 +11,9 @@ const SKIP_FILTERS = new Set(['JBIG2Decode', 'CCITTFaxDecode']);
  * @param opts   { boxes: (number[4]|null)[] per source page (PDF user space),
  *                 keep: 0-based source page indices to keep, in order,
  *                 rotate: degrees clockwise to add, per source page (multiples of 90),
+ *                 stripMetadata: remove author, software, dates, XMP metadata, editing
+ *                   programs' private data, and photo metadata inside JPEGs (camera,
+ *                   time, location); the document title is kept,
  *                 stamps: [{ page: 0-based source page, rect: [x0, y0, x1, y1] in PDF
  *                   user space, png: Uint8Array }] images (signatures) drawn on
  *                   top of the page, upright as the page is shown before any
@@ -110,6 +113,8 @@ function prepare(mupdf, bytes, opts, progress) {
     page.put('Rotate', ((((cur.isNumber() ? cur.asNumber() : 0) + deg) % 360) + 360) % 360);
   });
 
+  if (opts.stripMetadata) stripMetadata(doc);
+
   const keep = opts.keep ?? [...Array(n).keys()];
   if (keep.length === 0) { doc.destroy?.(); throw new Error('No pages selected'); }
   if (keep.length !== n || keep.some((p, i) => p !== i)) {
@@ -155,6 +160,69 @@ export function inspectPdf(mupdf, bytes) {
   } finally {
     doc.destroy?.();
   }
+}
+
+/* ---------- metadata ---------- */
+
+function stripMetadata(doc) {
+  // Document info: keep only the title.
+  // Emptied in place: mupdf keeps the trailer's original reference to it.
+  const info = doc.getTrailer().get('Info');
+  if (info.isDictionary()) {
+    const keys = [];
+    info.forEach((v, k) => { if (k !== 'Title') keys.push(k); });
+    for (const k of keys) info.delete(k);
+  }
+  // XMP metadata and editing programs' private data, wherever they hang:
+  // the catalog, pages, images, fonts. Photo metadata inside JPEG images.
+  const n = doc.countObjects();
+  for (let k = 1; k < n; k++) {
+    const obj = doc.newIndirect(k);
+    if (!obj.isDictionary() && !obj.isStream()) continue;
+    const type = obj.get('Type');
+    if (type.isName() && type.asName() === 'Metadata') continue; // the streams themselves go with their references
+    obj.delete('Metadata');
+    obj.delete('PieceInfo');
+    if (obj.isStream() && filterNames(obj.get('Filter')).join() === 'DCTDecode') {
+      const raw = obj.readRawStream();
+      const jpeg = raw.asUint8Array().slice();
+      raw.destroy?.();
+      const clean = stripJpegMetadata(jpeg);
+      if (clean !== jpeg) {
+        obj.writeRawStream(clean);
+        obj.put('Length', clean.length);
+      }
+    }
+  }
+}
+
+// Remove metadata segments from a JPEG without re-encoding it: EXIF and XMP
+// (APP1), Photoshop/IPTC (APP13), other application data and comments. Keeps
+// JFIF (APP0), the colour profile (APP2) and Adobe's colour marker (APP14),
+// which change how the image looks. Returns the input if nothing changed.
+export function stripJpegMetadata(b) {
+  if (b[0] !== 0xff || b[1] !== 0xd8) return b;
+  const keepApp = new Set([0xe0, 0xe2, 0xee]);
+  const parts = [b.subarray(0, 2)];
+  let i = 2, removed = false;
+  while (i + 4 <= b.length && b[i] === 0xff) {
+    const m = b[i + 1];
+    if (m === 0xff) { i++; continue; } // fill byte
+    if (m === 0xda) break; // start of scan: the rest is image data
+    if (m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { parts.push(b.subarray(i, i + 2)); i += 2; continue; }
+    const len = (b[i + 2] << 8) | b[i + 3];
+    if (len < 2 || i + 2 + len > b.length) return b; // damaged: leave it alone
+    const meta = (m >= 0xe1 && m <= 0xef && !keepApp.has(m)) || m === 0xfe;
+    if (meta) removed = true;
+    else parts.push(b.subarray(i, i + 2 + len));
+    i += 2 + len;
+  }
+  if (!removed) return b;
+  parts.push(b.subarray(i));
+  const out = new Uint8Array(parts.reduce((t, p) => t + p.length, 0));
+  let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
 }
 
 /* ---------- stamps (signatures) ---------- */

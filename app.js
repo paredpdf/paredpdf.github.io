@@ -28,7 +28,7 @@ const el = Object.fromEntries([
   'fname', 'fmeta', 'progress', 'progressBar', 'progressText',
   'detectCard', 'confidence', 'detectText', 'groupSel',
   'boxCard', 'scopeAll', 'scopePage', 'scopeHint', 'orientP', 'orientL', 'chips', 'rSize', 'rMm', 'rRatio',
-  'exportCard', 'memWarn', 'sigWarn', 'compress', 'ppiField', 'ppi', 'compressHint', 'estimate', 'download', 'saveProgress', 'saveBar', 'saveText',
+  'exportCard', 'memWarn', 'sigWarn', 'strip', 'stripHint', 'compress', 'ppiField', 'ppi', 'compressHint', 'estimate', 'download', 'saveProgress', 'saveBar', 'saveText',
   'reset', 'error', 'lang', 'version', 'versionLink', 'about',
   'signCard', 'addSign', 'signHint', 'signDlg', 'tabDraw', 'tabType', 'tabUpload', 'paneDraw', 'paneType', 'paneUpload', 'pad', 'sigFile', 'sigPick', 'sigImg',
   'sigName', 'fontChips',
@@ -101,6 +101,9 @@ async function open(file) {
     state.selected = new Uint8Array(state.n + 1).fill(1);
     await collectGroups(my);
     if (my !== session) return;
+    state.meta = await pdf.getMetadata().catch(() => null);
+    if (my !== session) return;
+    showStripHint();
     const g0 = state.groups[0];
     showFileMeta();
     state.large = isLargeForDevice(file.size, {
@@ -1038,6 +1041,27 @@ function oneShot(kind, bytes, opts, onStart) {
   }).finally(() => w.terminate());
 }
 
+/* ---------- hidden details (metadata) ---------- */
+
+el.strip.addEventListener('change', showStripHint);
+
+// Say what this PDF carries, so the choice is concrete: "This PDF has:
+// author "Shai", made with Keynote, dates."
+function showStripHint() {
+  const info = state?.meta?.info ?? {};
+  const short = (v) => { const s = String(v).trim(); return s.length > 40 ? `${s.slice(0, 39)}…` : s; };
+  // Names can be in any script: isolate them inside right-to-left text.
+  const iso = (v) => (isRtl() ? `⁨${short(v)}⁩` : short(v));
+  const found = [];
+  if (info.Author?.trim()) found.push(t('meta.author', { v: iso(info.Author) }));
+  const tool = info.Creator?.trim() || info.Producer?.trim();
+  if (tool) found.push(t('meta.software', { v: iso(tool) }));
+  if (info.CreationDate || info.ModDate) found.push(t('meta.dates'));
+  if (state?.meta?.metadata) found.push(t('meta.xmp'));
+  const list = found.length ? ` ${t('export.stripFound', { list: found.join(', ') })}` : '';
+  el.stripHint.textContent = (el.strip.checked ? t('export.stripOn') : t('export.stripOff')) + list;
+}
+
 /* ---------- existing digital signatures ---------- */
 
 // Exporting rewrites the file, which breaks any digital signature in it, so
@@ -1165,7 +1189,7 @@ async function exportPdf() {
       });
       // Transferred, not copied: the worker owns the only copy from here on.
       worker.postMessage({ id, bytes: data, opts: { boxes, keep: keepList(),
-        rotate: Array.from(state.rot.subarray(1)), compress, stamps } }, [data.buffer]);
+        rotate: Array.from(state.rot.subarray(1)), compress, stamps, stripMetadata: el.strip.checked } }, [data.buffer]);
     });
     retireWorker();
     if (my !== session) return;
@@ -1252,6 +1276,7 @@ el.lang.addEventListener('change', () => {
 // Redraw every piece of text the app writes itself, in the current language.
 function rerender() {
   showVersion();
+  if (state) showStripHint();
   if (state) renderSigns();
   showSigWarn();
   showCompressHint();
