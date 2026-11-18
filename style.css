@@ -271,3 +271,9 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 .mtag { display: inline-block; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 99px; white-space: nowrap; }
 .mtag.gone { background: var(--warn-soft); color: var(--warn); }
 .mtag.kept { background: var(--surface-2); color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line); }
+
+/* New version ready */
+.update { position: fixed; z-index: 20; inset: auto 0 0 0; display: flex; gap: 12px; align-items: center; justify-content: space-between;
+  background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -4px 16px rgba(0,0,0,.08); font-size: 14px;
+  padding: 10px max(16px, env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+.update .btn { flex: none; padding: 7px 14px; }

@@ -1,15 +1,24 @@
-// Service worker: makes Pared work offline once it has been opened.
+// Service worker: makes Pared work offline once it has been opened, and
+// switches versions all at once.
 //
-// - App files are network-first (with a short timeout), so a new deploy
-//   shows up on the next load and the cached copy is used offline.
-// - vendor/ files are cache-first: they are large and only change when
-//   their versions change, and the vendor cache name includes those
+// - VERSION is the deployed commit, written in by scripts/stamp.js. Each
+//   deploy therefore changes this file, which is how the browser notices a
+//   new version. Its app files are all fetched afresh into one cache named
+//   for that version, and a running page is only ever served from the cache
+//   it started with, so old and new files never mix.
+// - A new version takes over when the page asks for it (see app.js): at once
+//   on the start screen, or after "Reload" when a file is open.
+// - Served straight from the repo, VERSION stays 'dev' and app files are
+//   network-first instead, so local changes show up on reload.
+// - vendor/ files are cache-first under a name that includes the library
 //   versions (test/sw.test.js keeps it in sync with package.json).
 
-const APP_CACHE = 'pared-app-v1';
+const VERSION = 'dev';
+const APP_CACHE = `pared-app-${VERSION}`;
 const VENDOR_CACHE = 'pared-vendor-pdfjs-4.10.38-mupdf-1.28.1-fonts-5.3.0';
 const SHARE_CACHE = 'pared-share';
 const NETWORK_TIMEOUT_MS = 4000;
+const STAMPED = VERSION !== 'dev';
 
 const APP_FILES = [
   './', 'index.html', 'style.css', 'app.js', 'detect.js', 'pages.js', 'limits.js', 'i18n.js', 'sign.js', 'zip.js', 'pdf-core.js', 'export-worker.js',
@@ -27,13 +36,22 @@ const VENDOR_FILES = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
-    await (await caches.open(APP_CACHE)).addAll(APP_FILES);
+    // Fresh from the server, past the browser's HTTP cache, so this
+    // version's files are all this version's.
+    const app = await caches.open(APP_CACHE);
+    await app.addAll(APP_FILES.map((f) => new Request(f, { cache: 'reload' })));
     const vendor = await caches.open(VENDOR_CACHE);
     const missing = [];
     for (const f of VENDOR_FILES) if (!(await vendor.match(f))) missing.push(f);
     await vendor.addAll(missing);
-    await self.skipWaiting();
+    // The very first install has nothing to replace. Later ones wait until
+    // the page says it's a good moment (an update mid-edit would mix files).
+    if (!self.registration.active || !STAMPED) await self.skipWaiting();
   })());
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'skip-waiting') self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
@@ -51,7 +69,7 @@ self.addEventListener('fetch', (event) => {
   if (req.method === 'POST' && url.pathname.endsWith('/share')) { event.respondWith(receiveShare(req)); return; }
   if (req.method !== 'GET') return;
   const path = url.pathname.slice(new URL(self.registration.scope).pathname.length);
-  event.respondWith(path.startsWith('vendor/') ? cacheFirst(req) : networkFirst(req));
+  event.respondWith(path.startsWith('vendor/') ? cacheFirst(req) : STAMPED ? fromThisVersion(req) : networkFirst(req));
 });
 
 // A PDF shared to the installed app (Web Share Target). Park it in a cache
@@ -75,6 +93,15 @@ async function cacheFirst(req) {
   const res = await fetch(req);
   if (res.ok) cache.put(req, res.clone()); // fonts and CMaps are cached as they're used
   return res;
+}
+
+// Everything from this version's cache; only files it doesn't hold (such as
+// the docs pages) come from the network.
+async function fromThisVersion(req) {
+  const cache = await caches.open(APP_CACHE);
+  const hit = await cache.match(req, { ignoreSearch: true })
+    || (req.mode === 'navigate' && await cache.match('index.html'));
+  return hit || fetch(req);
 }
 
 async function networkFirst(req) {

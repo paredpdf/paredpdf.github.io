@@ -30,7 +30,7 @@ const el = Object.fromEntries([
   'detectCard', 'confidence', 'detectText', 'groupSel',
   'boxCard', 'scopeAll', 'scopePage', 'scopeHint', 'orientP', 'orientL', 'chips', 'rSize', 'rMm', 'rRatio',
   'exportCard', 'memWarn', 'sigWarn', 'strip', 'stripHint', 'pwCard', 'pwText', 'pw', 'keepPw', 'keepPwRow', 'outMode', 'everyField', 'everyN', 'metaDetails', 'metaList', 'compress', 'ppiField', 'ppi', 'compressHint', 'estimate', 'download', 'saveProgress', 'saveBar', 'saveText',
-  'reset', 'error', 'lang', 'version', 'versionLink', 'about',
+  'reset', 'error', 'lang', 'version', 'versionLink', 'about', 'updateBar', 'updateBtn',
   'signCard', 'addSign', 'signHint', 'signDlg', 'tabDraw', 'tabType', 'tabUpload', 'paneDraw', 'paneType', 'paneUpload', 'pad', 'sigFile', 'sigPick', 'sigImg',
   'sigName', 'fontChips',
   'sigErr', 'sigClear', 'sigCancel', 'sigUse',
@@ -56,7 +56,8 @@ document.addEventListener('drop', (e) => {
   const pdfs = [...(e.dataTransfer?.files || [])].filter((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
   if (pdfs.length) open(pdfs);
 });
-el.reset.addEventListener('click', resetAll);
+// Back to the start is a good moment to switch to a waiting new version.
+el.reset.addEventListener('click', () => (waitingWorker ? applyUpdate() : resetAll()));
 
 function resetAll() {
   session++;
@@ -1485,9 +1486,40 @@ async function exportPdf() {
 
 /* ---------- offline support ---------- */
 
+// A deployed version installs in the background and waits (see sw.js). It
+// takes over at a moment that can't lose work: straight away on the start
+// screen, after "Reload" or "Start over" when a file is open. The page only
+// reloads for a switch it asked for.
+let waitingWorker = null, switching = false;
+
+function applyUpdate() {
+  if (!waitingWorker) return;
+  switching = true;
+  waitingWorker.postMessage({ type: 'skip-waiting' });
+}
+
+function offerUpdate(worker) {
+  if (!worker || !navigator.serviceWorker.controller) return; // first install: nothing to replace
+  waitingWorker = worker;
+  if (!state) applyUpdate();
+  else el.updateBar.hidden = false;
+}
+
+el.updateBtn.addEventListener('click', applyUpdate);
+
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('offline support unavailable', err));
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (switching) location.reload(); });
+  window.addEventListener('load', async () => {
+    try {
+      const reg = await navigator.serviceWorker.register('./sw.js');
+      if (reg.waiting) offerUpdate(reg.waiting);
+      reg.addEventListener('updatefound', () => {
+        const w = reg.installing;
+        w?.addEventListener('statechange', () => { if (w.state === 'installed') offerUpdate(w); });
+      });
+    } catch (err) {
+      console.warn('offline support unavailable', err);
+    }
   });
 }
 

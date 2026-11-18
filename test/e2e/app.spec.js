@@ -969,3 +969,59 @@ test('a signature placed on a turned page reads upright there, and in the export
   const [x0, y0, x1, y1] = p0.rects[0];
   expect(y1 - y0).toBeGreaterThan((x1 - x0) * 2);
 });
+
+/* ---------- updates of the installed app ---------- */
+
+// The test server serves the site under /t/<name>/ as if deployed at the
+// version last set here (sw.js stamped as the deploy job does). The
+// browser's own update checks for sw.js reach the server, not test routes.
+const deployAs = (request, name, version) => request.post(`/deploy/${name}/${version}`);
+const appCaches = (page) => page.evaluate(async () => (await caches.keys()).filter((k) => k.startsWith('pared-app-')).sort());
+const checkForUpdate = (page) => page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).update());
+async function installed(page, request, name, version) {
+  await deployAs(request, name, version);
+  await page.goto(`/t/${name}/`);
+  await page.waitForFunction(() => navigator.serviceWorker.controller);
+  expect(await appCaches(page)).toEqual([`pared-app-${version}`]);
+}
+
+test('on the start screen, a new version takes over by itself', async ({ page, context, request, browserName }, info) => {
+  test.skip(browserName !== 'chromium', 'service worker updates are checked in Chromium');
+  const name = `start-${info.project.name}`;
+  await installed(page, request, name, 'aaaaaaa11111');
+  await page.evaluate(() => { window.beforeUpdate = true; });
+  await deployAs(request, name, 'bbbbbbb22222');
+  await checkForUpdate(page);
+  // The page reloaded into the new version, and the old copy is gone.
+  await page.waitForFunction(() => !window.beforeUpdate, null, { timeout: 15_000 });
+  await expect.poll(() => appCaches(page)).toEqual(['pared-app-bbbbbbb22222']);
+  // And it works offline from the new copy.
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.locator('#drop')).toBeVisible();
+  await context.setOffline(false);
+});
+
+test('with a file open, a new version waits for "Reload"', async ({ page, request, browserName }, info) => {
+  test.skip(browserName !== 'chromium', 'service worker updates are checked in Chromium');
+  const name = `open-${info.project.name}`;
+  await installed(page, request, name, 'aaaaaaa11111');
+  await page.setInputFiles('#file', PDF);
+  await expect(page.locator('#exportCard')).toBeVisible({ timeout: 60_000 });
+  await page.evaluate(() => { window.beforeUpdate = true; });
+  await deployAs(request, name, 'ccccccc33333');
+  await checkForUpdate(page);
+  await expect(page.locator('#updateBar')).toBeVisible({ timeout: 15_000 });
+  // Nothing changed under the open file: same page, still on the old copy.
+  expect(await page.evaluate(() => window.beforeUpdate)).toBe(true);
+  await expect(page.locator('#exportCard')).toBeVisible();
+  // Files the open page fetches now still come from its own version, though
+  // the server has moved on: old and new never mix.
+  const servedVersion = () => page.evaluate(async () => (await (await fetch('pages.js')).text()).match(/deployed (\w+)/)?.[1]);
+  expect(await servedVersion()).toBe('aaaaaaa11111');
+  await page.click('#updateBtn');
+  await page.waitForFunction(() => !window.beforeUpdate, null, { timeout: 15_000 });
+  await expect.poll(() => appCaches(page)).toEqual(['pared-app-ccccccc33333']);
+  await expect(page.locator('#updateBar')).toBeHidden();
+  expect(await servedVersion()).toBe('ccccccc33333');
+});

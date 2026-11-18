@@ -208,6 +208,9 @@ const STRINGS = {
     'about.open': 'Free to use and to change, under the AGPL.',
     'about.code': 'See the code',
 
+    'update.ready': 'A new version of Pared is ready.',
+    'update.note': 'Reloading closes the open file, so export first if you need to.',
+    'update.reload': 'Reload',
     'foot.source': 'Source code',
     'foot.version': ({ commit, when }) => `Version ${commit}, deployed ${when}`,
   },
@@ -405,6 +408,9 @@ const STRINGS = {
     'about.open': 'חופשי לשימוש ולשינוי, ברישיון AGPL.',
     'about.code': 'לקוד',
 
+    'update.ready': 'גרסה חדשה של Pared מוכנה.',
+    'update.note': 'טעינה מחדש סוגרת את הקובץ הפתוח, אז כדאי לייצא קודם אם צריך.',
+    'update.reload': 'טעינה מחדש',
     'foot.source': 'קוד המקור',
     'foot.version': ({ commit, when }) => `גרסה ${commit}, עלתה ב־${when}`,
   },
@@ -602,6 +608,9 @@ const STRINGS = {
     'about.open': 'مجاني للاستخدام والتعديل، بموجب رخصة AGPL.',
     'about.code': 'اطّلع على الشيفرة',
 
+    'update.ready': 'إصدار جديد من Pared جاهز.',
+    'update.note': 'إعادة التحميل تُغلق الملف المفتوح، لذا صدّره أولًا إن احتجت.',
+    'update.reload': 'إعادة التحميل',
     'foot.source': 'الشيفرة المصدرية',
     'foot.version': ({ commit, when }) => `الإصدار ${commit}، نُشر في ${when}`,
   },
@@ -799,6 +808,9 @@ const STRINGS = {
     'about.open': 'Libre para usar y modificar, con licencia AGPL.',
     'about.code': 'Ver el código',
 
+    'update.ready': 'Hay una versión nueva de Pared lista.',
+    'update.note': 'Al recargar se cierra el archivo abierto, así que exporta antes si lo necesitas.',
+    'update.reload': 'Recargar',
     'foot.source': 'Código fuente',
     'foot.version': ({ commit, when }) => `Versión ${commit}, publicada el ${when}`,
   },
