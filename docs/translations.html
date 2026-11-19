@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Pared translation review</title>
+<style>
+/* Layout: one reading column of English / translation pairs, grouped by part of the app. */
+:root {
+  --bg: #f4f2ee; --card: #ffffff; --ink: #1d1c1a; --ink-2: #5f5b54; --line: #e2ded6;
+  --accent: #bd4815; --accent-ink: #ffffff; --ok: #2b7044; --ok-soft: #e1f1e6; --fix: #8a5c0b; --fix-soft: #f8edd3;
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161513; --card: #1f1e1b; --ink: #efece6; --ink-2: #a7a197; --line: #34322d;
+    --accent: #f07a43; --accent-ink: #1b0d05; --ok: #7fcf9b; --ok-soft: #1c3325; --fix: #e9be62; --fix-soft: #382c12;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 var(--font);
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) calc(96px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+main { max-width: 760px; margin: 0 auto; display: grid; gap: 16px; }
+h1 { font-size: 22px; margin: 4px 0 0; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); margin: 12px 0 0; }
+p { margin: 0; }
+.lead { color: var(--ink-2); }
+.langs { display: flex; gap: 6px; flex-wrap: wrap; }
+.langs button { font: inherit; font-weight: 600; padding: 7px 14px; border-radius: 99px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+.langs button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.list { display: grid; gap: 10px; }
+.row { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 8px; min-width: 0; }
+.row[data-state="ok"] { border-color: var(--ok); }
+.row[data-state="fix"] { border-color: var(--fix); }
+.key { font: 12px/1.3 ui-monospace, Menlo, Consolas, monospace; color: var(--ink-2); overflow-wrap: anywhere; }
+.en { color: var(--ink-2); overflow-wrap: anywhere; }
+.tr { font-size: 17px; overflow-wrap: anywhere; }
+.acts { display: flex; gap: 6px; }
+.acts button { font: inherit; font-size: 14px; font-weight: 600; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; min-height: 40px; }
+.acts button[aria-pressed="true"][data-v="ok"] { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }
+.acts button[aria-pressed="true"][data-v="fix"] { background: var(--fix-soft); border-color: var(--fix); color: var(--fix); }
+.acts button:focus-visible, .langs button:focus-visible, .bar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fix { font: inherit; font-size: 16px; width: 100%; min-height: 60px; padding: 8px 10px; border: 1px solid var(--fix); border-radius: 8px; background: var(--bg); color: var(--ink); resize: vertical; }
+.bar { position: fixed; inset: auto 0 0 0; background: var(--card); border-top: 1px solid var(--line);
+  padding: 10px max(16px, env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+.bar-in { max-width: 760px; margin: 0 auto; display: flex; gap: 10px; align-items: center; }
+.tally { flex: 1; font-size: 14px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.bar button { font: inherit; font-weight: 700; border: 0; border-radius: 10px; padding: 11px 16px; background: var(--accent); color: var(--accent-ink); cursor: pointer; }
+#out { width: 100%; min-height: 140px; font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; padding: 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+.small { font-size: 13px; color: var(--ink-2); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Pared translation review</h1>
+    <p class="lead">Every piece of interface text, in English and in the language you're checking. Mark each one <b>OK</b>, or <b>Suggest</b> a better wording. Words in the samples (names, sizes, dates) are only examples. Your marks stay in this browser; when you're done, tap <b>Copy corrections</b> and paste them into the chat.</p>
+  </header>
+  <div class="langs" role="group" aria-label="Language to review" id="langs"></div>
+  <div id="sections"><p class="small">Loading the texts…</p></div>
+  <details>
+    <summary class="small">Corrections as text</summary>
+    <textarea id="out" readonly aria-label="Corrections as text"></textarea>
+  </details>
+</main>
+<div class="bar">
+  <div class="bar-in">
+    <span class="tally" id="tally"></span>
+    <button type="button" id="copy">Copy corrections</button>
+  </div>
+</div>
+
+<script type="module">
+// The texts come straight from the app's own i18n.js, so this page always
+// shows what the app shows.
+import { strings, LANGS } from '../i18n.js';
+
+const NAMES = { he: 'עברית', ar: 'العربية', es: 'Español' };
+const RTL = new Set(['he', 'ar']);
+// Sample values for the blanks in sentences.
+const SAMPLE = { page: 3, n: 7, k: 5, p: 4, pos: 2, deg: 90, size: '1.2 MB', sheet: 'A4', shape: '9:16', label: '9:16',
+  orient: '·', part: '7-3', a: 7, b: 3, done: 2, total: 6, name: 'report.pdf', before: '5.3 MB', pct: 64, msg: '…',
+  commit: '83d9527', when: '19 Nov 2026', v: 'Keynote', list: '…', place: '32.08, 34.78' };
+// Parts of the app, by key prefix.
+const PARTS = [['lang', 'Header'], ['tag', 'Header'], ['drop', 'Start screen'], ['about', 'Start screen'], ['file', 'File'],
+  ['progress', 'File'], ['pw', 'Password'], ['detect', 'Detected page'], ['box', 'Crop'], ['sheet', 'Crop'], ['stage', 'Preview'],
+  ['pager', 'Preview'], ['edit', 'Preview'], ['pages', 'Pages'], ['range', 'Pages'], ['thumb', 'Pages'], ['sign', 'Signing'],
+  ['export', 'Export'], ['meta', 'Hidden details'], ['reset', 'Export'], ['update', 'Updates'], ['err', 'Errors'], ['foot', 'Footer']];
+const partOf = (key) => PARTS.find(([p]) => key === p || key.startsWith(`${p}.`))?.[1] ?? 'Other';
+const show = (v, n) => (typeof v === 'function' ? v({ ...SAMPLE, n }) : v);
+// Functions that change with the count are shown for 1 and for several.
+const variants = (v) => {
+  if (typeof v !== 'function') return [[null, v]];
+  const one = show(v, 1), many = show(v, 7);
+  return one === many ? [[null, many]] : [['1', one], ['7', many]];
+};
+
+const KEY = 'pared-translation-review';
+let marks = {};
+try { marks = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { /* private mode: marks last this visit */ }
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(marks)); } catch { /* ignore */ } };
+let lang = 'he';
+try { lang = localStorage.getItem(`${KEY}-lang`) || 'he'; } catch { /* ignore */ }
+
+const $ = (id) => document.getElementById(id);
+const en = strings('en');
+const keys = Object.keys(en);
+
+function render() {
+  $('langs').replaceChildren(...LANGS.filter((c) => c !== 'en').map((c) => {
+    const b = Object.assign(document.createElement('button'), { type: 'button', textContent: NAMES[c] ?? c });
+    b.lang = c;
+    b.setAttribute('aria-pressed', String(c === lang));
+    b.addEventListener('click', () => { lang = c; try { localStorage.setItem(`${KEY}-lang`, c); } catch { /* ignore */ } render(); });
+    return b;
+  }));
+  const tr = strings(lang);
+  const byPart = new Map();
+  for (const key of keys) {
+    const part = partOf(key);
+    if (!byPart.has(part)) byPart.set(part, []);
+    byPart.get(part).push(key);
+  }
+  const root = $('sections');
+  root.replaceChildren();
+  for (const [part, list] of byPart) {
+    const h = Object.assign(document.createElement('h2'), { textContent: part });
+    const box = Object.assign(document.createElement('div'), { className: 'list' });
+    for (const key of list) box.append(row(key, en[key], tr[key]));
+    root.append(h, box);
+  }
+  update();
+}
+
+function row(key, enV, trV) {
+  const id = `${lang}:${key}`, m = marks[id] ?? {};
+  const el = Object.assign(document.createElement('section'), { className: 'row' });
+  el.dataset.state = m.v ?? '';
+  el.append(Object.assign(document.createElement('p'), { className: 'key', textContent: key }));
+  const enVs = variants(enV), trVs = variants(trV);
+  for (let i = 0; i < Math.max(enVs.length, trVs.length); i++) {
+    const [count, e] = enVs[Math.min(i, enVs.length - 1)], [, t] = trVs[Math.min(i, trVs.length - 1)];
+    const prefix = count ? `(${count}) ` : '';
+    el.append(Object.assign(document.createElement('p'), { className: 'en', textContent: prefix + e }));
+    const tp = Object.assign(document.createElement('p'), { className: 'tr', textContent: t });
+    tp.lang = lang;
+    tp.dir = RTL.has(lang) ? 'rtl' : 'ltr';
+    el.append(tp);
+  }
+  const fix = Object.assign(document.createElement('textarea'), { className: 'fix', value: m.fix ?? '', placeholder: 'Better wording' });
+  fix.lang = lang;
+  fix.dir = RTL.has(lang) ? 'rtl' : 'ltr';
+  fix.setAttribute('aria-label', `Better wording for ${key}`);
+  fix.hidden = m.v !== 'fix';
+  fix.addEventListener('input', () => { (marks[id] ??= {}).fix = fix.value; save(); update(); });
+  const acts = Object.assign(document.createElement('div'), { className: 'acts' });
+  for (const [v, label] of [['ok', 'OK'], ['fix', 'Suggest']]) {
+    const b = Object.assign(document.createElement('button'), { type: 'button', textContent: label });
+    b.dataset.v = v;
+    b.setAttribute('aria-pressed', String(m.v === v));
+    b.setAttribute('aria-label', `${label}: ${key}`);
+    b.addEventListener('click', () => {
+      const cur = marks[id] ??= {};
+      cur.v = cur.v === v ? undefined : v;
+      for (const o of acts.children) o.setAttribute('aria-pressed', String(o.dataset.v === cur.v));
+      el.dataset.state = cur.v ?? '';
+      fix.hidden = cur.v !== 'fix';
+      if (cur.v === 'fix') { if (!fix.value) fix.value = show(trV, 7); fix.focus(); cur.fix = fix.value; }
+      save();
+      update();
+    });
+    acts.append(b);
+  }
+  el.append(acts, fix);
+  return el;
+}
+
+function report() {
+  const tr = strings(lang), lines = [`Pared translation review: ${NAMES[lang] ?? lang}`, ''];
+  for (const key of keys) {
+    const m = marks[`${lang}:${key}`];
+    if (m?.v === 'fix' && m.fix?.trim() && m.fix.trim() !== String(show(tr[key], 7)).trim()) {
+      lines.push(`${key}`, `  now:     ${show(tr[key], 7)}`, `  better:  ${m.fix.trim()}`, '');
+    }
+  }
+  if (lines.length === 2) lines.push('No corrections.');
+  return lines.join('\n');
+}
+
+function update() {
+  const ids = keys.map((k) => marks[`${lang}:${k}`]?.v);
+  const done = ids.filter(Boolean).length, fixes = ids.filter((v) => v === 'fix').length;
+  $('tally').textContent = `${done} of ${keys.length} checked · ${fixes} to change`;
+  $('out').value = report();
+}
+
+$('copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(report());
+    $('copy').textContent = 'Copied';
+  } catch {
+    const out = $('out');
+    out.closest('details').open = true;
+    out.focus();
+    out.select();
+    $('copy').textContent = 'Select and copy';
+  }
+  setTimeout(() => { $('copy').textContent = 'Copy corrections'; }, 2500);
+});
+
+render();
+</script>
+</body>
+</html>
