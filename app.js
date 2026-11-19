@@ -1194,9 +1194,23 @@ function placeSignature(sig, { width = 0.35 } = {}) {
 
 // Position a signature's box on the stage. On a turned page the image is
 // turned back, so it reads upright as the page is shown and exported.
+// The page corner (in the page's own frame) that shows top-right (×) and
+// bottom-right (resize) on screen, for each turn of the page.
+const DEL_CORNER = { 0: 'tr', 90: 'tl', 180: 'bl', 270: 'br' };
+const RS_CORNER = { 0: 'br', 90: 'tr', 180: 'tl', 270: 'bl' };
+function placeAtCorner(el, corner) {
+  // 'auto', not '': clearing would fall back to the stylesheet's own corner.
+  Object.assign(el.style, { top: 'auto', bottom: 'auto', left: 'auto', right: 'auto' });
+  el.style[corner[0] === 't' ? 'top' : 'bottom'] = '-12px';
+  el.style[corner[1] === 'l' ? 'left' : 'right'] = '-12px';
+}
+
 function setSigRect(node) {
   const { box, page } = node.item;
   setRect(node, box);
+  const turn = state.rot[page] || 0;
+  placeAtCorner(node.querySelector('.sig-del'), DEL_CORNER[turn]);
+  placeAtCorner(node.querySelector('.sig-rs'), RS_CORNER[turn]);
   const img = node.querySelector('img');
   const deg = state.rot[page] || 0;
   if (!deg) { img.removeAttribute('style'); return; }
@@ -1272,14 +1286,21 @@ el.stage.addEventListener('pointermove', (e) => {
   const [dx, dy] = screenToSheet(e.clientX - d.sx, e.clientY - d.sy);
   let nb;
   if (d.resize) {
-    // Corner drag: grow or shrink, keeping the signature's shape.
+    // Corner drag: grow or shrink, keeping the signature's shape, from the
+    // corner opposite the handle (which sits bottom-right as shown, at a
+    // different corner of the page's own frame when the page is turned).
     // At most as big as the crop area; clampSign then slides it back inside
     // if it grew past an edge.
     const aspect = ((b.x1 - b.x0) * d.w) / ((b.y1 - b.y0) * d.h);
     const c = cropOf(d.item.page).box;
+    const corner = RS_CORNER[state.rot[d.item.page] || 0];
+    const right = corner[1] === 'r', bottom = corner[0] === 'b';
     const maxW = Math.min(c.x1 - c.x0, ((c.y1 - c.y0) * d.h * aspect) / d.w);
-    const nw = Math.min(maxW, Math.max(0.03, b.x1 - b.x0 + dx));
-    nb = { x0: b.x0, y0: b.y0, x1: b.x0 + nw, y1: b.y0 + (nw * d.w) / aspect / d.h };
+    const nw = Math.min(maxW, Math.max(0.03, b.x1 - b.x0 + (right ? dx : -dx)));
+    const nh = (nw * d.w) / aspect / d.h;
+    const [x0, x1] = right ? [b.x0, b.x0 + nw] : [b.x1 - nw, b.x1];
+    const [y0, y1] = bottom ? [b.y0, b.y0 + nh] : [b.y1 - nh, b.y1];
+    nb = { x0, y0, x1, y1 };
   } else {
     nb = { x0: b.x0 + dx, y0: b.y0 + dy, x1: b.x1 + dx, y1: b.y1 + dy };
   }

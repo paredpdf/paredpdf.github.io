@@ -1326,3 +1326,30 @@ test('typing in a text box keeps its own undo', async ({ page }) => {
   // The crop wasn't undone by the text box's undo.
   await expect(page.locator('#rSize')).toHaveText('842 × 595 pt');
 });
+
+test('on a turned page, the signature buttons stay top-right and bottom-right, and resizing grows from the other corner', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'mouse drag');
+  await load(page);
+  for (let turns = 1; turns <= 3; turns++) {
+    await page.click('.thumb[data-p="1"] .trot');
+    await page.click('#addDate');
+    const sig = page.locator('.sig').last();
+    await page.locator('#stageBox').scrollIntoViewIfNeeded();
+    const s = await sig.boundingBox(), del = await sig.locator('.sig-del').boundingBox(), rs = await sig.locator('.sig-rs').boundingBox();
+    // × at the top-right of the signature as shown, resize at the bottom-right.
+    expect(del.x + del.width / 2).toBeGreaterThan(s.x + s.width - 5);
+    expect(del.y + del.height / 2).toBeLessThan(s.y + 5);
+    expect(rs.x + rs.width / 2).toBeGreaterThan(s.x + s.width - 5);
+    expect(rs.y + rs.height / 2).toBeGreaterThan(s.y + s.height - 5);
+    // Drag the resize handle outward: the top-left corner stays where it was.
+    await page.mouse.move(rs.x + rs.width / 2, rs.y + rs.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(rs.x + rs.width / 2 + 40, rs.y + rs.height / 2 + 15, { steps: 5 });
+    await page.mouse.up();
+    const after = await sig.boundingBox();
+    expect(after.width).toBeGreaterThan(s.width + 15);
+    expect(Math.abs(after.x - s.x)).toBeLessThan(3);
+    expect(Math.abs(after.y - s.y)).toBeLessThan(3);
+    await page.keyboard.press('Delete');
+  }
+});
