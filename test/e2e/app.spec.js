@@ -1081,3 +1081,56 @@ test('a first visit never reloads by itself', async ({ page, request }, info) =>
   expect(await page.evaluate(() => window.firstLoad)).toBe(true);
   await expect(page.locator('#updateBar')).toBeHidden();
 });
+
+/* ---------- saved signatures ---------- */
+
+async function typeAndRemember(page, name, remember) {
+  await page.click('#addSign');
+  await page.click('#tabType');
+  await page.fill('#sigName', name);
+  if (remember) await page.check('#sigRemember');
+  await page.click('#sigUse');
+  await expect(page.locator('#signDlg')).toBeHidden();
+}
+
+test('remembers a signature on this device, and adds it with one tap next time', async ({ page }) => {
+  await load(page);
+  await expect(page.locator('#savedSigs')).toBeHidden();
+  await expect(page.locator('#sigRemember')).not.toBeChecked(); // opt-in
+  await typeAndRemember(page, 'Ada Lovelace', true);
+  await expect(page.locator('.saved-sig')).toHaveCount(1);
+
+  // A new visit, a new document: one tap signs it.
+  await load(page, path.join(FIXTURES, 'photos.pdf'));
+  await expect(page.locator('#savedSigs')).toBeVisible();
+  await expect(page.locator('.saved-sig img')).toHaveAttribute('src', /^data:image\/png/);
+  await page.click('.saved-sig');
+  await expect(page.locator('.sig')).toHaveCount(1);
+  expect(signatures(await download(page))[0].rects).toHaveLength(1);
+});
+
+test('keeps at most four, newest first, without repeats, and forgets on request', async ({ page }) => {
+  await load(page);
+  for (const name of ['One', 'Two', 'Three', 'Two', 'Four', 'Five']) await typeAndRemember(page, name, true);
+  const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem('pared-signatures')).map((x) => x.sig.text));
+  expect(await saved()).toEqual(['Five', 'Four', 'Two', 'Three']);
+  await expect(page.locator('.saved-sig')).toHaveCount(4);
+  await page.click('.saved-item:first-child .saved-forget');
+  await expect(page.locator('.saved-sig')).toHaveCount(3);
+  expect(await saved()).toEqual(['Four', 'Two', 'Three']);
+});
+
+test('without "Remember", nothing is stored', async ({ page }) => {
+  await load(page);
+  await typeAndRemember(page, 'Ada', false);
+  await expect(page.locator('.sig')).toHaveCount(1);
+  expect(await page.evaluate(() => localStorage.getItem('pared-signatures'))).toBeNull();
+  await expect(page.locator('#savedSigs')).toBeHidden();
+});
+
+test('saved signatures speak the chosen language', async ({ page }) => {
+  await load(page, PDF, '/?lang=he');
+  await typeAndRemember(page, 'שי', true);
+  await page.reload();
+  await expect(page.locator('.saved-sig')).toHaveAttribute('aria-label', 'הוספת חתימה שמורה 1 לעמוד הזה');
+});

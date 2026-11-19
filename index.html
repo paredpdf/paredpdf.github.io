@@ -162,6 +162,10 @@
 
         <div class="card" id="signCard" hidden>
           <div class="card-h"><span data-i18n="sign.title">Sign</span></div>
+          <div class="saved" id="savedSigs" hidden>
+            <p class="saved-h" data-i18n="sign.savedTitle">Saved on this device</p>
+            <div class="saved-list" id="savedList"></div>
+          </div>
           <button class="btn wide" id="addSign" type="button" data-i18n="sign.add">Add a signature</button>
           <p class="hint" id="signHint" data-i18n="sign.hint" hidden>Drag a signature to move it, and its corner to resize it. Arrow keys move the selected one, and Delete removes it.</p>
           <p class="hint" data-i18n="sign.note">This adds a picture of your signature. It doesn't prove who signed.</p>
@@ -236,6 +240,8 @@
       <button type="button" class="swatch" data-ink="black" aria-pressed="true" data-i18n-aria-label="sign.black" data-i18n-title="sign.black" aria-label="Black" title="Black"></button>
       <button type="button" class="swatch" data-ink="blue" aria-pressed="false" data-i18n-aria-label="sign.blue" data-i18n-title="sign.blue" aria-label="Blue" title="Blue"></button>
     </div>
+    <label class="check remember"><input type="checkbox" id="sigRemember"> <span data-i18n="sign.remember">Remember on this device</span></label>
+    <p class="hint remember-hint" data-i18n="sign.rememberHint">Kept only in this browser, so the next document takes one tap. Never uploaded.</p>
     <p class="dlg-err" id="sigErr" hidden></p>
     <div class="dlg-actions">
       <button type="button" class="btn ghost" id="sigClear" data-i18n="sign.clear">Clear</button>

@@ -71,3 +71,12 @@ test('password prompt is accessible', async ({ page }) => {
   await expect(page.locator('#pwCard')).toBeVisible();
   await audit(page, 'password');
 });
+
+test('saved signatures are accessible', async ({ page }) => {
+  await page.goto('/?lang=ar');
+  await page.evaluate(() => localStorage.setItem('pared-signatures', JSON.stringify([{ id: 's1', sig: { kind: 'draw', strokes: [[0, 0.5, 0.5, 0.2, 1, 0.8]], width: 0.05, aspect: 3, color: '#1b1b1f' } }])));
+  await page.reload(); // as on a return visit
+  await page.setInputFiles('#file', PDF);
+  await expect(page.locator('#savedSigs')).toBeVisible({ timeout: 60_000 });
+  await audit(page, 'saved');
+});

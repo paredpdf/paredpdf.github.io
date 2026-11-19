@@ -33,7 +33,7 @@ const el = Object.fromEntries([
   'reset', 'error', 'lang', 'version', 'versionLink', 'about', 'updateBar', 'updateBtn',
   'signCard', 'addSign', 'signHint', 'signDlg', 'tabDraw', 'tabType', 'tabUpload', 'paneDraw', 'paneType', 'paneUpload', 'pad', 'sigFile', 'sigPick', 'sigImg',
   'sigName', 'fontChips',
-  'sigErr', 'sigClear', 'sigCancel', 'sigUse',
+  'sigErr', 'sigClear', 'sigCancel', 'sigUse', 'sigRemember', 'savedSigs', 'savedList',
 ].map((id) => [id, $(id)]));
 
 let state = null;
@@ -919,8 +919,62 @@ el.sigUse.addEventListener('click', async () => {
       : uploaded;
   if (!sig) return;
   el.signDlg.close();
+  if (el.sigRemember.checked) rememberSignature(sig);
   placeSignature(sig);
 });
+
+/* ---------- saved signatures (this browser only) ---------- */
+
+// Kept in this browser's local storage, newest first, never uploaded. A
+// signature is plain data (strokes, typed text and font, or a small PNG),
+// so it redraws sharp. If storage is blocked or full, nothing is saved and
+// signing still works.
+const SAVED_KEY = 'pared-signatures', MAX_SAVED = 4;
+
+function savedSignatures() {
+  try {
+    const list = JSON.parse(localStorage.getItem(SAVED_KEY) || '[]');
+    return Array.isArray(list) ? list.filter((x) => x?.sig?.kind) : [];
+  } catch { return []; }
+}
+
+function storeSaved(list) {
+  try { localStorage.setItem(SAVED_KEY, JSON.stringify(list)); return true; } catch (err) { console.warn('could not save the signature', err); return false; }
+}
+
+function rememberSignature(sig) {
+  const key = JSON.stringify(sig);
+  const list = [{ id: `s${Date.now().toString(36)}`, sig }, ...savedSignatures().filter((x) => JSON.stringify(x.sig) !== key)];
+  // If it doesn't fit, try with fewer old ones before giving up.
+  for (let n = Math.min(MAX_SAVED, list.length); n > 0; n--) if (storeSaved(list.slice(0, n))) break;
+  renderSaved();
+}
+
+function forgetSignature(id) {
+  storeSaved(savedSignatures().filter((x) => x.id !== id));
+  renderSaved();
+}
+
+function renderSaved() {
+  const list = savedSignatures();
+  el.savedSigs.hidden = !list.length;
+  el.savedList.replaceChildren(...list.map((x, i) => {
+    const item = Object.assign(document.createElement('div'), { className: 'saved-item' });
+    const use = Object.assign(document.createElement('button'), { type: 'button', className: 'saved-sig' });
+    use.setAttribute('aria-label', t('sign.useSaved', { n: i + 1 }));
+    use.title = t('sign.useSavedTitle');
+    const img = Object.assign(document.createElement('img'), { alt: '' });
+    signaturePreview(x.sig).then((url) => { img.src = url; }).catch(() => {});
+    use.append(img);
+    use.addEventListener('click', () => { if (state) placeSignature(x.sig); });
+    const forget = Object.assign(document.createElement('button'), { type: 'button', className: 'saved-forget', textContent: '×' });
+    forget.setAttribute('aria-label', t('sign.forget', { n: i + 1 }));
+    forget.title = t('sign.forgetTitle');
+    forget.addEventListener('click', () => forgetSignature(x.id));
+    item.append(use, forget);
+    return item;
+  }));
+}
 
 // Put a new signature in the middle of the current page's crop area, about a
 // third of its width as shown, keeping the signature's shape. On a turned
@@ -1585,6 +1639,7 @@ function storedLang() { try { return localStorage.getItem('pared-lang'); } catch
 
 setLang(pickLang({ search: location.search, saved: storedLang(), languages: navigator.languages || [navigator.language || ''] }));
 showVersion();
+renderSaved();
 showCompressHint();
 showEstimate();
 
@@ -1598,6 +1653,7 @@ el.lang.addEventListener('change', () => {
 // Redraw every piece of text the app writes itself, in the current language.
 function rerender() {
   showVersion();
+  renderSaved();
   if (!el.pwCard.hidden) showPwText();
   if (state) { showStripHint(); renderHidden(); }
   if (state) renderSigns();
