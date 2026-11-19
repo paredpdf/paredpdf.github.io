@@ -12,10 +12,13 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",
+    "@fontsource/amatic-sc": "5.3.0",
     "@fontsource/aref-ruqaa": "5.3.0",
     "@fontsource/caveat": "5.3.0",
     "@fontsource/dancing-script": "5.3.0",
     "@fontsource/gveret-levin": "5.3.0",
+    "@fontsource/playpen-sans-hebrew": "5.3.0",
+    "@fontsource/solitreo": "5.3.0",
     "@playwright/test": "1.64.1",
     "mupdf": "1.28.1",
     "pdfjs-dist": "4.10.38"

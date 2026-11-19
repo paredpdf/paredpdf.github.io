@@ -9,11 +9,11 @@ test('offers every style for Latin names', () => {
 });
 
 test('offers only styles that can write Hebrew or Arabic', () => {
-  assert.deepEqual(ids('שי אפשטיין'), ['gveret']);
+  assert.deepEqual(ids('שי אפשטיין'), ['gveret', 'playpen', 'amatic', 'solitreo']);
   assert.deepEqual(ids('ليلى'), ['ruqaa']);
-  assert.deepEqual(ids('Shai שי'), ['gveret']);
-  // No single style writes both, so all are offered and fallbacks fill in.
-  assert.equal(ids('שי ليلى').length, 4);
+  assert.deepEqual(ids('Shai שי'), ['gveret', 'playpen', 'amatic', 'solitreo']);
+  // No single style writes both, so the Latin set is offered and fallbacks fill in.
+  assert.deepEqual(ids('שי ليلى'), ['dancing', 'caveat', 'gveret', 'ruqaa']);
 });
 
 // One row of RGBA pixels from grey levels.

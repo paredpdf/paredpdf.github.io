@@ -705,9 +705,14 @@ test('typed names in Hebrew and Arabic get a handwriting font for their script',
   await page.click('#tabType');
   // Hebrew interface: the Hebrew style is picked by default.
   await page.fill('#sigName', 'שי אפשטיין');
-  // Only the style that can write Hebrew is offered.
-  await expect(page.locator('.fontchip')).toHaveCount(1);
+  // The Hebrew styles are offered, Gveret Levin first.
+  await expect(page.locator('.fontchip')).toHaveCount(4);
+  expect(await page.locator('.fontchip').evaluateAll((cs) => cs.map((c) => c.title))).toEqual(['Gveret Levin', 'Playpen Sans Hebrew', 'Amatic SC', 'Solitreo']);
   await expect(page.locator('.fontchip[aria-pressed="true"]')).toHaveAttribute('title', 'Gveret Levin');
+  // Each one's own Hebrew letters load (no fallback).
+  for (const family of ['Pared Playpen', 'Pared Amatic', 'Pared Solitreo']) {
+    await expect.poll(() => page.evaluate((f) => document.fonts.check(`20px "${f}"`, 'שי'), family)).toBe(true);
+  }
   await page.click('#sigUse');
   await expect(page.locator('.sig')).toHaveCount(1);
   expect(await page.evaluate(() => document.fonts.check('20px "Pared Gveret"', 'שי'))).toBe(true);

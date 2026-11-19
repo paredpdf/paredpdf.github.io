@@ -32,6 +32,9 @@ const VENDOR_FILES = [
   'vendor/fonts/caveat/caveat-latin-400-normal.woff2', 'vendor/fonts/caveat/caveat-latin-ext-400-normal.woff2',
   'vendor/fonts/gveret-levin/gveret-levin-latin-400-normal.woff2', 'vendor/fonts/gveret-levin/gveret-levin-hebrew-400-normal.woff2',
   'vendor/fonts/aref-ruqaa/aref-ruqaa-latin-400-normal.woff2', 'vendor/fonts/aref-ruqaa/aref-ruqaa-arabic-400-normal.woff2',
+  'vendor/fonts/playpen-sans-hebrew/playpen-sans-hebrew-latin-400-normal.woff2', 'vendor/fonts/playpen-sans-hebrew/playpen-sans-hebrew-hebrew-400-normal.woff2',
+  'vendor/fonts/amatic-sc/amatic-sc-latin-400-normal.woff2', 'vendor/fonts/amatic-sc/amatic-sc-hebrew-400-normal.woff2',
+  'vendor/fonts/solitreo/solitreo-latin-400-normal.woff2', 'vendor/fonts/solitreo/solitreo-hebrew-400-normal.woff2',
 ];
 
 self.addEventListener('install', (event) => {

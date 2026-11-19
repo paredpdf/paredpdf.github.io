@@ -29,6 +29,9 @@ export const VENDOR = {
     ['caveat', ['latin', 'latin-ext']],
     ['gveret-levin', ['latin', 'hebrew']],
     ['aref-ruqaa', ['latin', 'arabic']],
+    ['playpen-sans-hebrew', ['latin', 'hebrew']],
+    ['amatic-sc', ['latin', 'hebrew']],
+    ['solitreo', ['latin', 'hebrew']],
   ].map(([font, subsets]) => [`fonts/${font}`, {
     from: nm('@fontsource', font),
     files: [...subsets.map((sub) => `files/${font}-${sub}-400-normal.woff2`), 'LICENSE'],

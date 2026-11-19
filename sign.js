@@ -201,23 +201,32 @@ const FACES = {
   'Pared Caveat': [['caveat', 'latin', LATIN], ['caveat', 'latin-ext', LATIN_EXT]],
   'Pared Gveret': [['gveret-levin', 'latin', LATIN], ['gveret-levin', 'hebrew', HEBREW]],
   'Pared Ruqaa': [['aref-ruqaa', 'latin', LATIN], ['aref-ruqaa', 'arabic', ARABIC]],
+  'Pared Playpen': [['playpen-sans-hebrew', 'latin', LATIN], ['playpen-sans-hebrew', 'hebrew', HEBREW]],
+  'Pared Amatic': [['amatic-sc', 'latin', LATIN], ['amatic-sc', 'hebrew', HEBREW]],
+  'Pared Solitreo': [['solitreo', 'latin', LATIN], ['solitreo', 'hebrew', HEBREW]],
 };
 
 // Styles to choose from. Each falls back to the Hebrew and Arabic fonts, so
 // a name in any of the interface's scripts comes out handwritten.
+// `scripts`: what a style can write. `offer`: the scripts it's offered for,
+// so a Latin name keeps its four styles and a Hebrew name gets its own four.
 export const FONTS = [
-  { id: 'dancing', name: 'Dancing Script', scripts: ['latin'], stack: ['Pared Dancing', 'Pared Gveret', 'Pared Ruqaa'] },
-  { id: 'caveat', name: 'Caveat', scripts: ['latin'], stack: ['Pared Caveat', 'Pared Gveret', 'Pared Ruqaa'] },
-  { id: 'gveret', name: 'Gveret Levin', scripts: ['latin', 'hebrew'], stack: ['Pared Gveret', 'Pared Ruqaa'] },
-  { id: 'ruqaa', name: 'Aref Ruqaa', scripts: ['latin', 'arabic'], stack: ['Pared Ruqaa', 'Pared Gveret'] },
+  { id: 'dancing', name: 'Dancing Script', scripts: ['latin'], offer: ['latin'], stack: ['Pared Dancing', 'Pared Gveret', 'Pared Ruqaa'] },
+  { id: 'caveat', name: 'Caveat', scripts: ['latin'], offer: ['latin'], stack: ['Pared Caveat', 'Pared Gveret', 'Pared Ruqaa'] },
+  { id: 'gveret', name: 'Gveret Levin', scripts: ['latin', 'hebrew'], offer: ['latin', 'hebrew'], stack: ['Pared Gveret', 'Pared Ruqaa'] },
+  { id: 'ruqaa', name: 'Aref Ruqaa', scripts: ['latin', 'arabic'], offer: ['latin', 'arabic'], stack: ['Pared Ruqaa', 'Pared Gveret'] },
+  { id: 'playpen', name: 'Playpen Sans Hebrew', scripts: ['latin', 'hebrew'], offer: ['hebrew'], stack: ['Pared Playpen', 'Pared Ruqaa'] },
+  { id: 'amatic', name: 'Amatic SC', scripts: ['latin', 'hebrew'], offer: ['hebrew'], stack: ['Pared Amatic', 'Pared Ruqaa'] },
+  { id: 'solitreo', name: 'Solitreo', scripts: ['latin', 'hebrew'], offer: ['hebrew'], stack: ['Pared Solitreo', 'Pared Ruqaa'] },
 ];
 
-// The styles that can write all of this text's letters themselves (the
-// others would only show their fallback). All of them if none can.
+// The styles offered for this text: those that can write all its letters
+// themselves (others would only show their fallback). All if none can.
 export function fontsFor(text) {
   const need = [/[\u0590-\u05FF\uFB1D-\uFB4F]/.test(text) && 'hebrew', /[\u0600-\u08FF\uFB50-\uFDFF\uFE70-\uFEFC]/.test(text) && 'arabic'].filter(Boolean);
-  const fit = FONTS.filter((f) => need.every((sc) => f.scripts.includes(sc)));
-  return fit.length ? fit : FONTS;
+  const main = need.length ? need : ['latin'];
+  const fit = FONTS.filter((f) => need.every((sc) => f.scripts.includes(sc)) && main.some((sc) => f.offer.includes(sc)));
+  return fit.length ? fit : FONTS.filter((f) => f.offer.includes('latin'));
 }
 
 let facesAdded = false;
