@@ -61,7 +61,7 @@ a { color: var(--accent); }
 <main>
   <header>
     <h1>Pared phone check</h1>
-    <p class="lead">About 15 minutes on a real phone. Mark each step as it went. Your marks stay in this phone's browser only. When you're done, tap <b>Copy results</b> and paste them into the chat.</p>
+    <p class="lead">About 20 minutes on a real phone. Mark each step as it went. Your marks stay in this phone's browser only. When you're done, tap <b>Copy results</b> and paste them into the chat.</p>
   </header>
 
   <div class="device">
@@ -98,7 +98,8 @@ const SECTIONS = [
   ['Pages', [
     ['thumbs', 'Thumbnails', 'Scroll the thumbnails, tap one to preview it, untick one, then type 1-3 in the range box.'],
     ['reorder', 'Reorder by touch', 'Press and drag the ⠿ handle under a thumbnail to a new spot. The order changes and the page label says "now 2nd" (or similar).'],
-    ['rotate', 'Rotate', 'Tap ↻ under a thumbnail. The thumbnail turns.'],
+    ['rotate', 'Rotate', 'Tap ↻ under a thumbnail. The thumbnail turns, and so does the big preview when it\'s the page you\'re on.'],
+    ['turnedcrop', 'Crop a turned page', 'On the turned page, drag an edge of the orange box. It follows your finger the way the page is shown.'],
   ]],
   ['Export', [
     ['estimate', 'Size estimate', 'Under Export, the resolution menu shows "≈ … MB" next to each option after a few seconds.'],
@@ -112,6 +113,11 @@ const SECTIONS = [
     ['photo', 'Photo of a signature', 'Sign on white paper, then Upload → take a photo. The paper turns transparent and only the ink is left.'],
     ['place', 'Move, resize, remove', 'Drag the signature, pull its corner to resize, and remove one with ×.'],
     ['signout', 'Signature in the export', 'Download. The signature is where you put it, sharp, in the PDF viewer.'],
+    ['initials', 'Initials', 'Tap "Add initials" and type your full name. The styles show your initials (e.g. S.E.), and that\'s what gets placed.'],
+    ['date', 'Today\'s date', 'Tap "Add today\'s date". The date appears in the signature\'s handwriting.'],
+    ['every', 'On every page', 'With the initials selected, tap "Put it on every page". Every thumbnail shows them in the same spot, and so does the exported PDF.'],
+    ['remember', 'Remember a signature', 'Add a signature with "Remember on this device" ticked. Start over, open another PDF: the saved signature is a tile in the Sign card, and one tap adds it.'],
+    ['turnedsign', 'Sign a turned page', 'Turn a page with ↻ and add a signature. It reads upright on the preview, and in the exported PDF.'],
   ]],
   ['More', [
     ['hidden', 'Hidden details', 'Under "Remove hidden details", "Show what\'s hidden" lists the author, program and dates (if the PDF has them).'],
@@ -123,7 +129,8 @@ const SECTIONS = [
     ['install', 'Add to home screen', 'iPhone: Share → Add to Home Screen (in Safari). Android: in Chrome, ⋮ → Install app. Brave and Samsung Internet only make a shortcut (it has a small browser logo on the icon), which can\'t receive shared files. It opens full screen from its icon.'],
     ['offline', 'Works offline', 'Turn on airplane mode, open Pared from its icon, load a PDF and export it.'],
     ['share', 'Open from another app', 'Share a PDF from Files, Telegram or WhatsApp. Pared appears in the share sheet and opens it. Needs the Chrome install from the step above.', 'Android'],
-    ['version', 'Version', 'The footer says "Version d381cf1" or later. Put what it says in a comment.'],
+    ['update', 'Updates itself', 'After a new version is published, open the installed app: on the start screen it reloads by itself; with a file open, a "new version is ready" bar offers Reload.'],
+    ['version', 'Version', 'The footer says "Version 83d9527" or later. Put what it says in a comment.'],
   ]],
 ];
 
