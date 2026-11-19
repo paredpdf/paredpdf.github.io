@@ -167,6 +167,12 @@
             <div class="saved-list" id="savedList"></div>
           </div>
           <button class="btn wide" id="addSign" type="button" data-i18n="sign.add">Add a signature</button>
+          <div class="sign-more">
+            <button class="btn" id="addInitials" type="button" data-i18n="sign.addInitials">Add initials</button>
+            <button class="btn" id="addDate" type="button" data-i18n="sign.addDate">Add today’s date</button>
+          </div>
+          <button class="btn wide" id="copyAll" type="button" hidden data-i18n="sign.copyAll">Put it on every page</button>
+          <p class="hint" id="copyDone" role="status" hidden></p>
           <p class="hint" id="signHint" data-i18n="sign.hint" hidden>Drag a signature to move it, and its corner to resize it. Arrow keys move the selected one, and Delete removes it.</p>
           <p class="hint" data-i18n="sign.note">This adds a picture of your signature. It doesn't prove who signed.</p>
         </div>
@@ -216,7 +222,7 @@
     </section>
   </main>
   <dialog class="dlg" id="signDlg" aria-labelledby="signDlgTitle">
-    <h2 id="signDlgTitle" data-i18n="sign.dlgTitle">Your signature</h2>
+    <h2 id="signDlgTitle">Your signature</h2>
     <div class="seg" role="group" data-i18n-aria-label="sign.howAria" aria-label="How to make it">
       <button type="button" id="tabDraw" aria-pressed="true" data-i18n="sign.draw">Draw</button>
       <button type="button" id="tabType" aria-pressed="false" data-i18n="sign.type">Type</button>

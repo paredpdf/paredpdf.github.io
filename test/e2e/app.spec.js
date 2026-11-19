@@ -1134,3 +1134,58 @@ test('saved signatures speak the chosen language', async ({ page }) => {
   await page.reload();
   await expect(page.locator('.saved-sig')).toHaveAttribute('aria-label', 'הוספת חתימה שמורה 1 לעמוד הזה');
 });
+
+/* ---------- date, initials, every page ---------- */
+
+test('adds today’s date in one tap, in the interface language', async ({ page }) => {
+  await load(page);
+  await page.click('#addDate');
+  await expect(page.locator('.sig')).toHaveCount(1);
+  const today = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium' }).format(new Date());
+  await expect(page.locator('.sig')).toHaveAttribute('aria-label', new RegExp(`^${today}\\. Signature`));
+  expect(signatures(await download(page))[0].rects).toHaveLength(1);
+});
+
+test('the date is written in Hebrew in the Hebrew interface', async ({ page }) => {
+  await load(page, PDF, '/?lang=he');
+  await page.click('#addDate');
+  const today = new Intl.DateTimeFormat('he-IL', { dateStyle: 'medium' }).format(new Date());
+  await expect(page.locator('.sig')).toHaveAttribute('aria-label', new RegExp(`^${today}\\.`));
+  expect(await page.evaluate(() => document.fonts.check('20px "Pared Gveret"', 'נוב'))).toBe(true);
+});
+
+test('initials start from the typed name, small, and can go on every page', async ({ page }) => {
+  await load(page);
+  await typeAndRemember(page, 'Ada Lovelace', false);
+  await page.click('#addInitials');
+  await expect(page.locator('#signDlgTitle')).toHaveText('Your initials');
+  await expect(page.locator('#sigName')).toHaveValue('A.L.');
+  await page.click('#sigUse');
+  await expect(page.locator('.sig')).toHaveCount(2);
+  const [sigBox, initBox] = await Promise.all([page.locator('.sig').nth(0).boundingBox(), page.locator('.sig').nth(1).boundingBox()]);
+  expect(initBox.width).toBeLessThan(sigBox.width * 0.6);
+
+  // The initials are selected: put them on every page (5 more), once.
+  await expect(page.locator('#copyAll')).toBeVisible();
+  await page.click('#copyAll');
+  await expect(page.locator('#copyDone')).toHaveText('Added to 5 more pages.');
+  await page.locator('.sig').nth(1).focus();
+  await page.click('#copyAll');
+  await expect(page.locator('#copyDone')).toHaveText('It’s already on every page.');
+  for (const p of [2, 6]) await expect(page.locator(`.thumb[data-p="${p}"] .tsig`)).toHaveCount(1);
+
+  const pages = signatures(await download(page));
+  expect(pages.map((p) => p.rects.length)).toEqual([2, 1, 1, 1, 1, 1]);
+  // Same spot on every page (the pages are alike).
+  const r = pages.map((p) => p.rects.at(-1).map((v) => Math.round(v)));
+  expect(new Set(r.map(String)).size).toBe(1);
+});
+
+test('copies skip pages that are not exported', async ({ page }) => {
+  await load(page);
+  await page.fill('#range', '1-3');
+  await page.press('#range', 'Enter');
+  await page.click('#addDate');
+  await page.click('#copyAll');
+  await expect(page.locator('#copyDone')).toHaveText('Added to 2 more pages.');
+});

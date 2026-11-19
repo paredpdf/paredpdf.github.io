@@ -33,7 +33,8 @@ const el = Object.fromEntries([
   'reset', 'error', 'lang', 'version', 'versionLink', 'about', 'updateBar', 'updateBtn',
   'signCard', 'addSign', 'signHint', 'signDlg', 'tabDraw', 'tabType', 'tabUpload', 'paneDraw', 'paneType', 'paneUpload', 'pad', 'sigFile', 'sigPick', 'sigImg',
   'sigName', 'fontChips',
-  'sigErr', 'sigClear', 'sigCancel', 'sigUse', 'sigRemember', 'savedSigs', 'savedList',
+  'sigErr', 'sigClear', 'sigCancel', 'sigUse', 'sigRemember', 'savedSigs', 'savedList', 'signDlgTitle',
+  'addInitials', 'addDate', 'copyAll', 'copyDone',
 ].map((id) => [id, $(id)]));
 
 let state = null;
@@ -824,9 +825,22 @@ function updateCurrentInclusion() {
 
 let pad = null, dlgMode = 'draw', ink = 'black', uploaded = null, uploadedBlob = null, typedFont = null;
 
-el.addSign.addEventListener('click', openSignDialog);
+el.addSign.addEventListener('click', () => openSignDialog('signature'));
+el.addInitials.addEventListener('click', () => openSignDialog('initials'));
+el.addDate.addEventListener('click', addDate);
 
-function openSignDialog() {
+// The dialog makes signatures and initials alike; initials start on the
+// Type tab, filled in from the name typed for a signature.
+let dlgFor = 'signature', fullName = '';
+function openSignDialog(what) {
+  dlgFor = what;
+  showDlgTitle();
+  if (what === 'initials') {
+    dlgMode = 'type';
+    el.sigName.value = initialsOf(fullName || lastSavedName());
+  } else if (dlgMode === 'type') {
+    el.sigName.value = fullName;
+  }
   el.signDlg.showModal();
   pad ??= createPad(el.pad, { onChange: updateSignButtons });
   pad.setColor(INKS[ink]);
@@ -919,8 +933,64 @@ el.sigUse.addEventListener('click', async () => {
       : uploaded;
   if (!sig) return;
   el.signDlg.close();
+  if (sig.kind === 'type' && dlgFor === 'signature') fullName = sig.text;
   if (el.sigRemember.checked) rememberSignature(sig);
-  placeSignature(sig);
+  placeSignature(sig, dlgFor === 'initials' ? { width: 0.14 } : {});
+});
+
+function showDlgTitle() { el.signDlgTitle.textContent = t(dlgFor === 'initials' ? 'sign.dlgInitials' : 'sign.dlgTitle'); }
+
+// "Ada Lovelace" -> "A.L.", by letters, whatever the script.
+function initialsOf(name) {
+  const words = String(name).trim().split(/[\s\-]+/).filter(Boolean);
+  return words.length ? `${words.map((w) => Array.from(w)[0].toUpperCase()).join('.')}.` : '';
+}
+
+const lastSavedName = () => savedSignatures().find((x) => x.sig.kind === 'type')?.sig.text ?? '';
+
+// Today's date, written like the signature: same handwriting and ink.
+async function addDate() {
+  if (!state) return;
+  const text = new Intl.DateTimeFormat(locale(), { dateStyle: 'medium' }).format(new Date());
+  const fits = fontsFor(text);
+  const font = fits.some((f) => f.id === typedFont) ? typedFont : fits.find((f) => f.id === ({ he: 'gveret', ar: 'ruqaa' }[lang()] ?? 'dancing'))?.id ?? fits[0].id;
+  placeSignature(await typedSignature(text, font, INKS[ink]), { width: 0.26 });
+}
+
+/* ---------- the same signature on every page ---------- */
+
+let activeSign = null; // the placed signature last selected
+el.stage.addEventListener('focusin', (e) => {
+  const node = e.target.closest('.sig');
+  if (!node) return;
+  activeSign = node.item;
+  el.copyAll.hidden = state.n < 2;
+  el.copyDone.hidden = true;
+});
+
+// Copy the selected one to every exported page: the same place and size
+// relative to each page's crop area, keeping its shape. Pages that already
+// have it are skipped, so pressing twice adds nothing.
+el.copyAll.addEventListener('click', () => {
+  const src = activeSign;
+  if (!src || !state.signs.includes(src)) return;
+  const c = cropOf(src.page).box, g = state.groupOf[src.page], b = src.box;
+  const rx = (b.x0 - c.x0) / (c.x1 - c.x0), ry = (b.y0 - c.y0) / (c.y1 - c.y0), rw = (b.x1 - b.x0) / (c.x1 - c.x0);
+  const shape = ((b.y1 - b.y0) * g.H) / ((b.x1 - b.x0) * g.W); // height / width, in points
+  let added = 0;
+  for (const p of state.order) {
+    if (p === src.page || !state.selected[p] || state.signs.some((x) => x.page === p && x.sig === src.sig)) continue;
+    const c2 = cropOf(p).box, g2 = state.groupOf[p];
+    const w = rw * (c2.x1 - c2.x0), h = (w * g2.W * shape) / g2.H;
+    const x0 = c2.x0 + rx * (c2.x1 - c2.x0), y0 = c2.y0 + ry * (c2.y1 - c2.y0);
+    const item = { page: p, sig: src.sig, preview: src.preview };
+    item.box = clampSign(item, { x0, y0, x1: x0 + w, y1: y0 + h });
+    state.signs.push(item);
+    renderThumbSigns(p);
+    added++;
+  }
+  el.copyDone.textContent = t('sign.copied', { n: added });
+  el.copyDone.hidden = false;
 });
 
 /* ---------- saved signatures (this browser only) ---------- */
@@ -979,13 +1049,13 @@ function renderSaved() {
 // Put a new signature in the middle of the current page's crop area, about a
 // third of its width as shown, keeping the signature's shape. On a turned
 // page "as shown" is across the page's own height, so the box is swapped.
-function placeSignature(sig) {
+function placeSignature(sig, { width = 0.35 } = {}) {
   const crop = cropOf(state.page).box;
   const SW = el.stage.offsetWidth, SH = el.stage.offsetHeight;
   const side = (state.rot[state.page] || 0) % 180 !== 0;
   const cw = (crop.x1 - crop.x0) * SW, ch = (crop.y1 - crop.y0) * SH;
   const [viewW, viewH] = side ? [ch, cw] : [cw, ch];
-  let w = viewW * 0.35, h = w / sig.aspect;
+  let w = viewW * width, h = w / sig.aspect;
   if (h > viewH * 0.25) { w *= (viewH * 0.25) / h; h = viewH * 0.25; }
   const [bw, bh] = side ? [h / SW, w / SH] : [w / SW, h / SH];
   const cx = (crop.x0 + crop.x1) / 2, cy = (crop.y0 + crop.y1) / 2;
@@ -1022,7 +1092,8 @@ function renderSigns() {
     node.className = 'sig';
     node.tabIndex = 0;
     node.setAttribute('role', 'group'); // not img: an image can't hold the × button
-    node.setAttribute('aria-label', t('sign.itemAria'));
+    // Typed ones (names, initials, dates) say what they say.
+    node.setAttribute('aria-label', item.sig.kind === 'type' ? `${item.sig.text}. ${t('sign.itemAria')}` : t('sign.itemAria'));
     const img = document.createElement('img');
     img.alt = '';
     (item.preview ??= signaturePreview(item.sig)).then((url) => { img.src = url; });
@@ -1044,6 +1115,7 @@ function renderSigns() {
 
 function removeSign(item) {
   state.signs = state.signs.filter((x) => x !== item);
+  if (activeSign === item) { activeSign = null; el.copyAll.hidden = true; }
   renderSigns();
 }
 
@@ -1654,6 +1726,7 @@ el.lang.addEventListener('change', () => {
 function rerender() {
   showVersion();
   renderSaved();
+  showDlgTitle();
   if (!el.pwCard.hidden) showPwText();
   if (state) { showStripHint(); renderHidden(); }
   if (state) renderSigns();

@@ -292,3 +292,7 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 .saved-forget:hover { color: var(--ink); border-color: var(--ink-2); }
 .dlg .remember { margin: 8px 0 0; font-weight: 600; }
 .dlg .remember-hint { margin: 2px 0 0 !important; }
+.sign-more { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 4px; }
+.sign-more .btn { padding: 8px 10px; font-size: 14px; }
+#copyAll { margin-top: 4px; padding: 8px 10px; font-size: 14px; }
+#copyDone { margin: 4px 0 0 !important; }
