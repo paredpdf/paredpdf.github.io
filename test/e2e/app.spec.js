@@ -1189,3 +1189,43 @@ test('copies skip pages that are not exported', async ({ page }) => {
   await page.click('#copyAll');
   await expect(page.locator('#copyDone')).toHaveText('Added to 2 more pages.');
 });
+
+test('a full name typed for initials becomes initials', async ({ page }) => {
+  await load(page);
+  await page.click('#addInitials');
+  await expect(page.locator('#sigName')).toHaveValue(''); // no name known yet
+  await expect(page.locator('#typeHint')).toHaveText('Type your name or your initials.');
+  await page.fill('#sigName', 'Shai Epstein');
+  await expect(page.locator('.fontchip').first()).toHaveText('S.E.'); // previewed as initials
+  await page.click('#sigUse');
+  await expect(page.locator('.sig')).toHaveAttribute('aria-label', /^S\.E\.\. /);
+  // Typed as initials already: kept exactly.
+  await page.click('#addInitials');
+  await page.fill('#sigName', 'SE');
+  await page.click('#sigUse');
+  await expect(page.locator('.sig').nth(1)).toHaveAttribute('aria-label', /^SE\. /);
+});
+
+test('initials come from a name typed for the signature, even if cancelled', async ({ page }) => {
+  await load(page);
+  await page.click('#addSign');
+  await page.click('#tabType');
+  await page.fill('#sigName', 'Ada Lovelace');
+  await page.click('#sigCancel');
+  await page.click('#addInitials');
+  await expect(page.locator('#sigName')).toHaveValue('A.L.');
+});
+
+test('"Add a signature" opens where it was left, not on the initials tab', async ({ page }) => {
+  await load(page);
+  await page.click('#addSign');
+  await expect(page.locator('#tabDraw')).toHaveAttribute('aria-pressed', 'true');
+  await page.click('#sigCancel');
+  await page.click('#addInitials');
+  await expect(page.locator('#tabType')).toHaveAttribute('aria-pressed', 'true');
+  await page.click('#sigCancel');
+  await page.click('#addSign');
+  await expect(page.locator('#tabDraw')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#signDlgTitle')).toHaveText('Your signature');
+  await expect(page.locator('#typeHint')).toHaveText('Type your name and pick a style.');
+});

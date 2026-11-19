@@ -34,7 +34,7 @@ const el = Object.fromEntries([
   'signCard', 'addSign', 'signHint', 'signDlg', 'tabDraw', 'tabType', 'tabUpload', 'paneDraw', 'paneType', 'paneUpload', 'pad', 'sigFile', 'sigPick', 'sigImg',
   'sigName', 'fontChips',
   'sigErr', 'sigClear', 'sigCancel', 'sigUse', 'sigRemember', 'savedSigs', 'savedList', 'signDlgTitle',
-  'addInitials', 'addDate', 'copyAll', 'copyDone',
+  'addInitials', 'addDate', 'copyAll', 'copyDone', 'typeHint',
 ].map((id) => [id, $(id)]));
 
 let state = null;
@@ -831,14 +831,17 @@ el.addDate.addEventListener('click', addDate);
 
 // The dialog makes signatures and initials alike; initials start on the
 // Type tab, filled in from the name typed for a signature.
-let dlgFor = 'signature', fullName = '';
+// sigMode is the tab last used for a signature, so initials (always on the
+// Type tab) don't change where "Add a signature" opens.
+let dlgFor = 'signature', fullName = '', sigMode = 'draw';
 function openSignDialog(what) {
   dlgFor = what;
   showDlgTitle();
   if (what === 'initials') {
     dlgMode = 'type';
     el.sigName.value = initialsOf(fullName || lastSavedName());
-  } else if (dlgMode === 'type') {
+  } else {
+    dlgMode = sigMode;
     el.sigName.value = fullName;
   }
   el.signDlg.showModal();
@@ -849,6 +852,7 @@ function openSignDialog(what) {
 
 function setDlgMode(mode) {
   dlgMode = mode;
+  if (dlgFor === 'signature') sigMode = mode;
   for (const [m, tab, pane] of [['draw', el.tabDraw, el.paneDraw], ['type', el.tabType, el.paneType], ['upload', el.tabUpload, el.paneUpload]]) {
     tab.setAttribute('aria-pressed', String(mode === m));
     pane.hidden = mode !== m;
@@ -868,12 +872,16 @@ function updateSignButtons() {
 el.tabDraw.addEventListener('click', () => setDlgMode('draw'));
 el.tabType.addEventListener('click', () => setDlgMode('type'));
 el.tabUpload.addEventListener('click', () => setDlgMode('upload'));
-el.sigName.addEventListener('input', () => { renderFontChips(); updateSignButtons(); });
+el.sigName.addEventListener('input', () => {
+  if (dlgFor === 'signature') fullName = el.sigName.value.trim(); // kept even if the dialog is cancelled
+  renderFontChips();
+  updateSignButtons();
+});
 el.sigName.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !el.sigUse.disabled) { e.preventDefault(); el.sigUse.click(); } });
 
 // One button per style, each showing the name (or a sample) in that font.
 function renderFontChips() {
-  const text = el.sigName.value.trim() || t('sign.namePh');
+  const text = typedText() || t('sign.namePh');
   const fonts = fontsFor(text);
   typedFont ??= { he: 'gveret', ar: 'ruqaa' }[lang()] ?? 'dancing';
   if (!fonts.some((f) => f.id === typedFont)) typedFont = fonts[0].id;
@@ -929,7 +937,7 @@ el.sigClear.addEventListener('click', () => {
 el.sigCancel.addEventListener('click', () => el.signDlg.close());
 el.sigUse.addEventListener('click', async () => {
   const sig = dlgMode === 'draw' ? pad.toSignature()
-    : dlgMode === 'type' ? await typedSignature(el.sigName.value, typedFont, INKS[ink])
+    : dlgMode === 'type' ? await typedSignature(typedText(), typedFont, INKS[ink])
       : uploaded;
   if (!sig) return;
   el.signDlg.close();
@@ -938,7 +946,17 @@ el.sigUse.addEventListener('click', async () => {
   placeSignature(sig, dlgFor === 'initials' ? { width: 0.14 } : {});
 });
 
-function showDlgTitle() { el.signDlgTitle.textContent = t(dlgFor === 'initials' ? 'sign.dlgInitials' : 'sign.dlgTitle'); }
+function showDlgTitle() {
+  el.signDlgTitle.textContent = t(dlgFor === 'initials' ? 'sign.dlgInitials' : 'sign.dlgTitle');
+  el.typeHint.textContent = t(dlgFor === 'initials' ? 'sign.initialsHint' : 'sign.typeHint');
+}
+
+// What gets written: for initials, a name typed in full becomes its
+// initials ("Shai Epstein" -> "S.E."); one word ("SE", "S.E.") stays as typed.
+function typedText() {
+  const raw = el.sigName.value.trim();
+  return dlgFor === 'initials' && /\s/.test(raw) ? initialsOf(raw) : raw;
+}
 
 // "Ada Lovelace" -> "A.L.", by letters, whatever the script.
 function initialsOf(name) {
