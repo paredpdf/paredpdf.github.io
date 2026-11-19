@@ -84,6 +84,10 @@
           <button class="btn icon" id="prev" type="button" data-i18n-aria-label="pager.prev" aria-label="Previous page">‹</button>
           <span id="pageLabel">Page 1 of 1</span>
           <button class="btn icon" id="next" type="button" data-i18n-aria-label="pager.next" aria-label="Next page">›</button>
+          <span class="undo-redo">
+            <button class="btn icon" id="undo" type="button" disabled data-i18n-aria-label="edit.undo" data-i18n-title="edit.undoTitle" aria-label="Undo" title="Undo (Ctrl+Z)">↶</button>
+            <button class="btn icon" id="redo" type="button" disabled data-i18n-aria-label="edit.redo" data-i18n-title="edit.redoTitle" aria-label="Redo" title="Redo (Ctrl+Shift+Z)">↷</button>
+          </span>
           <label class="toggle"><input type="checkbox" id="includePage" checked> <span data-i18n="pager.include">Export this page</span></label>
           <label class="toggle"><input type="checkbox" id="showContent" checked> <span data-i18n="pager.showContent">Show detected content</span></label>
         </nav>

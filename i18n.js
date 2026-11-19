@@ -31,6 +31,10 @@ const STRINGS = {
     'pager.include': 'Export this page',
     'pager.showContent': 'Show detected content',
 
+    'edit.undo': 'Undo',
+    'edit.undoTitle': 'Undo (Ctrl+Z)',
+    'edit.redo': 'Redo',
+    'edit.redoTitle': 'Redo (Ctrl+Shift+Z)',
     'pages.title': 'Pages',
     'pages.rangeAria': 'Pages to export',
     'pages.rangeEg': 'e.g. 1-5, 8, 10-12',
@@ -244,6 +248,10 @@ const STRINGS = {
     'pager.include': 'לייצא את העמוד הזה',
     'pager.showContent': 'להציג את התוכן שזוהה',
 
+    'edit.undo': 'ביטול פעולה',
+    'edit.undoTitle': 'ביטול פעולה (Ctrl+Z)',
+    'edit.redo': 'ביצוע מחדש',
+    'edit.redoTitle': 'ביצוע מחדש (Ctrl+Shift+Z)',
     'pages.title': 'עמודים',
     'pages.rangeAria': 'עמודים לייצוא',
     'pages.rangeEg': 'למשל 1-5, 8, 10-12',
@@ -457,6 +465,10 @@ const STRINGS = {
     'pager.include': 'تصدير هذه الصفحة',
     'pager.showContent': 'إظهار المحتوى المكتشف',
 
+    'edit.undo': 'تراجع',
+    'edit.undoTitle': 'تراجع (Ctrl+Z)',
+    'edit.redo': 'إعادة',
+    'edit.redoTitle': 'إعادة (Ctrl+Shift+Z)',
     'pages.title': 'الصفحات',
     'pages.rangeAria': 'الصفحات المراد تصديرها',
     'pages.rangeEg': 'مثلًا 1-5، 8، 10-12',
@@ -670,6 +682,10 @@ const STRINGS = {
     'pager.include': 'Exportar esta página',
     'pager.showContent': 'Mostrar el contenido detectado',
 
+    'edit.undo': 'Deshacer',
+    'edit.undoTitle': 'Deshacer (Ctrl+Z)',
+    'edit.redo': 'Rehacer',
+    'edit.redoTitle': 'Rehacer (Ctrl+Mayús+Z)',
     'pages.title': 'Páginas',
     'pages.rangeAria': 'Páginas que exportar',
     'pages.rangeEg': 'p. ej. 1-5, 8, 10-12',

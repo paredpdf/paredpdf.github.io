@@ -296,3 +296,6 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 .sign-more .btn { padding: 8px 10px; font-size: 14px; }
 #copyAll { margin-top: 4px; padding: 8px 10px; font-size: 14px; }
 #copyDone { margin: 4px 0 0 !important; }
+.undo-redo { display: flex; gap: 6px; margin-inline-start: 4px; }
+.btn.icon:disabled { opacity: .4; cursor: default; }
+[dir="rtl"] .undo-redo .btn.icon { transform: scaleX(-1); }

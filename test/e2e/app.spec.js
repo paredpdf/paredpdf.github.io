@@ -1229,3 +1229,95 @@ test('"Add a signature" opens where it was left, not on the initials tab', async
   await expect(page.locator('#signDlgTitle')).toHaveText('Your signature');
   await expect(page.locator('#typeHint')).toHaveText('Type your name and pick a style.');
 });
+
+/* ---------- undo and redo ---------- */
+
+const settle = (page) => page.waitForTimeout(500); // a step is recorded once changes settle
+
+test('undo and redo crop changes, one step at a time', async ({ page }) => {
+  await load(page);
+  await expect(page.locator('#undo')).toBeDisabled();
+  await expect(page.locator('#redo')).toBeDisabled();
+  await page.click('.chip:has-text("Whole sheet")');
+  await settle(page);
+  await page.click('.chip:has-text("4:5")');
+  await settle(page);
+  await expect(page.locator('#rSize')).not.toHaveText('842 × 595 pt');
+  await page.click('#undo');
+  await expect(page.locator('#rSize')).toHaveText('842 × 595 pt');
+  await page.click('#undo');
+  await expect(page.locator('#rSize')).toHaveText('334.7 × 595 pt');
+  await expect(page.locator('.chip[aria-pressed="true"]')).toHaveText('Auto (9:16)');
+  await expect(page.locator('#undo')).toBeDisabled();
+  await page.click('#redo');
+  await expect(page.locator('#rSize')).toHaveText('842 × 595 pt');
+});
+
+test('a whole crop drag is one step', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'mouse drag');
+  await load(page);
+  const h = await page.locator('.h[data-h="n"]').boundingBox();
+  await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+  await page.mouse.down();
+  for (let k = 1; k <= 4; k++) { await page.mouse.move(h.x + h.width / 2, h.y + 20 * k, { steps: 3 }); await page.waitForTimeout(450); } // pauses mid-drag
+  await page.mouse.up();
+  await settle(page);
+  await page.click('#undo');
+  await expect(page.locator('#rSize')).toHaveText('334.7 × 595 pt');
+  await expect(page.locator('#undo')).toBeDisabled();
+});
+
+test('undo and redo signatures, and the export follows', async ({ page }) => {
+  await load(page);
+  await page.click('#addDate');
+  await settle(page);
+  // Where the signature sits on the page, independent of scrolling.
+  const at = async () => { const b = await page.locator('.sig').boundingBox(), st = await page.locator('#stage').boundingBox(); return b.y - st.y; };
+  await page.locator('.sig').focus();
+  await page.keyboard.press('Shift+ArrowDown');
+  await settle(page);
+  const moved = await at();
+  await page.click('#undo'); // the move
+  expect(await at()).toBeLessThan(moved - 5);
+  await page.click('#undo'); // the date itself
+  await expect(page.locator('.sig')).toHaveCount(0);
+  await expect(page.locator('.thumb[data-p="1"] .tsig')).toHaveCount(0);
+  expect(signatures(await download(page))[0].rects).toHaveLength(0);
+  await page.click('#redo');
+  await page.click('#redo');
+  await expect(page.locator('.sig')).toHaveCount(1);
+  expect(await at()).toBeCloseTo(moved, 0);
+  expect(signatures(await download(page))[0].rects).toHaveLength(1);
+});
+
+test('undo rotation, page order and page selection, with the keyboard', async ({ page }) => {
+  await load(page);
+  await page.click('.thumb[data-p="2"] .trot');
+  await settle(page);
+  await page.locator('.thumb[data-p="1"] .tdrag').focus();
+  await page.keyboard.press('ArrowRight');
+  await settle(page);
+  await page.locator('.thumb[data-p="3"] input[type="checkbox"]').uncheck();
+  await settle(page);
+  await expect(page.locator('#selCount')).toHaveText('5 of 6 selected');
+  await page.locator('#prev').focus();
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('#selCount')).toHaveText('6 of 6 selected');
+  await page.keyboard.press('Control+z');
+  expect(await gridOrder(page)).toEqual([1, 2, 3, 4, 5, 6]);
+  await page.keyboard.press('Control+z');
+  const { rotate } = summarise(await download(page));
+  expect(rotate).toEqual([0, 0, 0, 0, 0, 0]);
+  await page.keyboard.press('Control+Shift+z');
+  expect(summarise(await download(page)).rotate).toEqual([0, 90, 0, 0, 0, 0]);
+});
+
+test('typing in a text box keeps its own undo', async ({ page }) => {
+  await load(page);
+  await page.click('.chip:has-text("Whole sheet")');
+  await settle(page);
+  await page.fill('#range', '1-3');
+  await page.press('#range', 'Control+z');
+  // The crop wasn't undone by the text box's undo.
+  await expect(page.locator('#rSize')).toHaveText('842 × 595 pt');
+});

@@ -30,7 +30,7 @@ const el = Object.fromEntries([
   'detectCard', 'confidence', 'detectText', 'groupSel',
   'boxCard', 'scopeAll', 'scopePage', 'scopeHint', 'orientP', 'orientL', 'chips', 'rSize', 'rMm', 'rRatio',
   'exportCard', 'memWarn', 'sigWarn', 'strip', 'stripHint', 'pwCard', 'pwText', 'pw', 'keepPw', 'keepPwRow', 'outMode', 'everyField', 'everyN', 'metaDetails', 'metaList', 'compress', 'ppiField', 'ppi', 'compressHint', 'estimate', 'download', 'saveProgress', 'saveBar', 'saveText',
-  'reset', 'error', 'lang', 'version', 'versionLink', 'about', 'updateBar', 'updateBtn',
+  'reset', 'error', 'lang', 'version', 'versionLink', 'about', 'updateBar', 'updateBtn', 'undo', 'redo',
   'signCard', 'addSign', 'signHint', 'signDlg', 'tabDraw', 'tabType', 'tabUpload', 'paneDraw', 'paneType', 'paneUpload', 'pad', 'sigFile', 'sigPick', 'sigImg',
   'sigName', 'fontChips',
   'sigErr', 'sigClear', 'sigCancel', 'sigUse', 'sigRemember', 'savedSigs', 'savedList', 'signDlgTitle',
@@ -67,6 +67,8 @@ function resetAll() {
   thumbQueue.length = 0;
   for (const d of state?.files ?? []) d.pdf.destroy();
   state = null;
+  steps = [];
+  stepAt = -1;
   cancelEstimate();
   estimate = null;
   showEstimate();
@@ -237,6 +239,7 @@ async function analyse(my) {
   el.exportCard.hidden = false;
   el.signCard.hidden = false;
   refreshPanel();
+  resetHistory(); // the detected crops are where undo stops
   warmWorker();
   scheduleEstimate(0);
   inspectFiles(my);
@@ -296,7 +299,7 @@ function setOrientation(g, o) {
   g.orient = o;
   const ro = ratioOrient(g.mode);
   if (ro && ro !== o) setMode(g, flipRatioId(g.mode));
-  else refreshPanel();
+  else { refreshPanel(); noteChange(); }
 }
 el.orientP.addEventListener('click', () => curGroup()?.done && setOrientation(curCrop(), 'portrait'));
 el.orientL.addEventListener('click', () => curGroup()?.done && setOrientation(curCrop(), 'landscape'));
@@ -314,6 +317,7 @@ el.scopePage.addEventListener('click', () => {
 function boxChanged(c) {
   if (c === curCrop()) { placeOverlay(); refreshPanel(); }
   layoutThumbs(c.sheet);
+  noteChange();
 }
 
 function curGroup() { return state?.groupOf[state.page]; }
@@ -511,7 +515,7 @@ el.crop.addEventListener('pointermove', (e) => {
   cancelAnimationFrame(dragFrame);
   dragFrame = requestAnimationFrame(() => layoutThumbs(c.sheet));
 });
-const endDrag = () => { drag = null; };
+const endDrag = () => { if (drag) { drag = null; noteChange(); } };
 el.crop.addEventListener('pointerup', endDrag);
 el.crop.addEventListener('pointercancel', endDrag);
 
@@ -610,6 +614,7 @@ function layoutThumbs(g) {
 // A page's signatures on its thumbnail, where they sit on the page. The
 // thumbnail turns with the page, so each is turned back, as in the preview.
 function renderThumbSigns(p) {
+  noteChange();
   const t = state?.thumbs[p];
   if (!t?.sheet) return;
   for (const old of t.clip.querySelectorAll('.tsig')) old.remove();
@@ -725,6 +730,7 @@ function readOrderFromGrid() {
 }
 
 function orderChanged() {
+  noteChange();
   el.resetOrder.hidden = state.order.every((p, i) => p === i + 1);
   updatePager();
 }
@@ -794,6 +800,7 @@ function selectedPages() {
 }
 
 function updateSelectionUI() {
+  noteChange();
   const pages = selectedPages();
   el.selCount.textContent = t('pages.selected', { k: pages.length, n: state.n });
   if (document.activeElement !== el.range) el.range.value = pages.length === state.n ? '' : formatRange(pages);
@@ -812,6 +819,7 @@ function updateSelectionUI() {
 }
 
 function updateCurrentInclusion() {
+  noteChange();
   const on = !!state.selected[state.page];
   el.includePage.checked = on;
   el.excludedBadge.hidden = on;
@@ -820,6 +828,107 @@ function updateCurrentInclusion() {
   el.rotBadge.textContent = t('stage.turned', { deg });
   el.stageBox.classList.toggle('excluded', !on);
 }
+
+/* ---------- undo and redo ---------- */
+
+// Snapshots of everything the person edits: crops, page order, rotation,
+// which pages are kept, and placed signatures. A snapshot is taken a moment
+// after changes settle (never mid-drag), and only when something actually
+// differs from the current one, so a drag is one step and redrawing after
+// an undo records nothing.
+// Not called `history`: that would hide the browser's own history object.
+const HISTORY_MAX = 100;
+let steps = [], stepAt = -1, noteTimer = 0, restoring = false;
+const sigIds = new WeakMap();
+let nextSigId = 1;
+const sigId = (sig) => { if (!sigIds.has(sig)) sigIds.set(sig, nextSigId++); return sigIds.get(sig); };
+
+function snapshot() {
+  return {
+    groups: state.groups.map((g) => ({ box: { ...g.box }, mode: g.mode, orient: g.orient })),
+    override: [...state.override].map(([p, c]) => [p, { box: { ...c.box }, mode: c.mode, orient: c.orient, sheet: c.sheet }]),
+    order: [...state.order],
+    rot: Array.from(state.rot),
+    selected: Array.from(state.selected),
+    signs: state.signs.map((x) => ({ ...x, box: { ...x.box } })),
+  };
+}
+
+// What makes two snapshots the same (signatures by identity, not content).
+const snapKey = (snap) => JSON.stringify({ ...snap, override: snap.override.map(([p, c]) => [p, c.box, c.mode, c.orient]),
+  signs: snap.signs.map((x) => [x.page, sigId(x.sig), x.box]) });
+
+function noteChange() {
+  if (!state || restoring || !state.groups.every((g) => g.done)) return;
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(recordStep, 350);
+}
+
+function recordStep() {
+  if (!state) return;
+  if (drag || signDrag || reorder) { noteTimer = setTimeout(recordStep, 200); return; } // wait for the drag to end
+  const snap = snapshot(), key = snapKey(snap);
+  if (steps[stepAt]?.key === key) return;
+  steps = steps.slice(0, stepAt + 1);
+  steps.push({ snap, key });
+  if (steps.length > HISTORY_MAX) steps.shift();
+  stepAt = steps.length - 1;
+  showUndoState();
+}
+
+function resetHistory() {
+  clearTimeout(noteTimer);
+  steps = [];
+  stepAt = -1;
+  if (state) recordStep();
+  showUndoState();
+}
+
+function stepHistory(d) {
+  const to = stepAt + d;
+  if (!state || to < 0 || to >= steps.length) return;
+  clearTimeout(noteTimer);
+  stepAt = to;
+  restore(steps[to].snap);
+  showUndoState();
+}
+
+function restore(snap) {
+  restoring = true;
+  try {
+    state.groups.forEach((g, i) => Object.assign(g, { box: { ...snap.groups[i].box }, mode: snap.groups[i].mode, orient: snap.groups[i].orient }));
+    state.override = new Map(snap.override.map(([p, c]) => [p, { ...c, box: { ...c.box } }]));
+    state.order = [...snap.order];
+    state.rot = Int16Array.from(snap.rot);
+    state.selected = Uint8Array.from(snap.selected);
+    state.signs = snap.signs.map((x) => ({ ...x, box: { ...x.box } }));
+    activeSign = null;
+    el.copyAll.hidden = true;
+    el.copyDone.hidden = true;
+    el.thumbs.append(...state.order.map((p) => state.thumbs[p].el));
+    for (const g of state.groups) layoutThumbs(g);
+    updateSelectionUI();
+    orderChanged();
+    showPage(state.page);
+  } finally {
+    restoring = false;
+  }
+}
+
+function showUndoState() {
+  el.undo.disabled = stepAt <= 0;
+  el.redo.disabled = stepAt < 0 || stepAt >= steps.length - 1;
+}
+
+el.undo.addEventListener('click', () => stepHistory(-1));
+el.redo.addEventListener('click', () => stepHistory(1));
+document.addEventListener('keydown', (e) => {
+  if (!state || el.work.hidden || el.signDlg.open || !(e.ctrlKey || e.metaKey)) return;
+  if (e.target.closest('input[type="text"], input[type="number"], input[type="password"], textarea')) return; // their own undo
+  const k = e.key.toLowerCase();
+  if (k === 'z' && !e.shiftKey) { e.preventDefault(); stepHistory(-1); }
+  else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); stepHistory(1); }
+});
 
 /* ---------- signatures ---------- */
 
