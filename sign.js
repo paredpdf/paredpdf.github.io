@@ -7,6 +7,10 @@
 //   { kind: 'image', url, aspect }   a transparent PNG data URL
 //   { kind: 'type', text, font, color, aspect, m: { l, r, a, d } }
 //     typed in one of FONTS; m is the text's measured extent in ems
+//   { kind: 'text', text, color, aspect, lines, w }
+//     plain text filled in on the page, in TEXT_FONT, one or more lines;
+//     w is the widest line in ems
+//   { kind: 'mark', mark: 'check' | 'cross', color, aspect: 1 }
 
 export const INKS = { black: '#1b1b1f', blue: '#1d3f9e' };
 
@@ -288,6 +292,64 @@ function drawTyped(ctx, sig, w, h) {
   ctx.fillText(sig.text, (MARGIN + l) * px, (MARGIN + a) * px);
 }
 
+/* ---------- text and marks filled in on the page ---------- */
+
+export const TEXT_FONT = 'Arial, "Helvetica Neue", Helvetica, "Noto Sans", "Noto Sans Hebrew", "Noto Sans Arabic", sans-serif';
+export const TEXT_LINE = 1.25; // line height, in ems
+export const TEXT_PAD = 0.1;   // ems of room around the text
+
+// Measured once, at a fixed size; drawn at any size.
+export function textItem(text, color = INKS.black) {
+  text = String(text).replace(/\r/g, '');
+  const lines = text.split('\n');
+  const ctx = document.createElement('canvas').getContext('2d');
+  ctx.font = `100px ${TEXT_FONT}`;
+  // An empty box still has some width, so it can be seen and grabbed.
+  const w = Math.max(0.6, ...lines.map((l) => ctx.measureText(l).width / 100));
+  return { kind: 'text', text, color, lines: lines.length, w,
+    aspect: (w + 2 * TEXT_PAD) / (lines.length * TEXT_LINE + 2 * TEXT_PAD) };
+}
+
+// Which way the text runs, by its first letter, as a field with dir="auto"
+// decides: all its lines then start from that side.
+export function isRtlText(s) {
+  const first = String(s).match(/[A-Za-z\u00C0-\u02AF\u0370-\u052F]|[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFC]/);
+  return !!first && RTL_CHARS.test(first[0]);
+}
+
+// Drawn as it was typed: every line starts from the side the text runs from.
+function drawText(ctx, sig, w, h) {
+  const px = h / (sig.lines * TEXT_LINE + 2 * TEXT_PAD);
+  const rtl = isRtlText(sig.text);
+  ctx.font = `${px}px ${TEXT_FONT}`;
+  ctx.fillStyle = sig.color;
+  ctx.textBaseline = 'middle';
+  ctx.direction = rtl ? 'rtl' : 'ltr';
+  ctx.textAlign = rtl ? 'right' : 'left';
+  sig.text.split('\n').forEach((line, i) => {
+    ctx.fillText(line, rtl ? w - TEXT_PAD * px : TEXT_PAD * px, (TEXT_PAD + (i + 0.5) * TEXT_LINE) * px);
+  });
+}
+
+export const markItem = (mark, color = INKS.black) => ({ kind: 'mark', mark, color, aspect: 1 });
+
+function drawMark(ctx, sig, w, h) {
+  const s = Math.min(w, h);
+  ctx.strokeStyle = sig.color;
+  ctx.lineWidth = s * 0.13;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  const pt = (x, y) => [(w - s) / 2 + x * s, (h - s) / 2 + y * s];
+  if (sig.mark === 'cross') {
+    ctx.moveTo(...pt(0.2, 0.2)); ctx.lineTo(...pt(0.8, 0.8));
+    ctx.moveTo(...pt(0.8, 0.2)); ctx.lineTo(...pt(0.2, 0.8));
+  } else {
+    ctx.moveTo(...pt(0.14, 0.54)); ctx.lineTo(...pt(0.4, 0.8)); ctx.lineTo(...pt(0.88, 0.2));
+  }
+  ctx.stroke();
+}
+
 /* ---------- rendering ---------- */
 
 const images = new Map(); // data URL -> decoded image
@@ -312,6 +374,10 @@ export async function renderSignature(sig, w, h) {
   } else if (sig.kind === 'type') {
     await loadFont(sig.font, sig.text);
     drawTyped(ctx, sig, c.width, c.height);
+  } else if (sig.kind === 'text') {
+    drawText(ctx, sig, c.width, c.height);
+  } else if (sig.kind === 'mark') {
+    drawMark(ctx, sig, c.width, c.height);
   } else if (sig.kind === 'image') {
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(await decoded(sig.url), 0, 0, c.width, c.height);

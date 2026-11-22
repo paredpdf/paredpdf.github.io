@@ -1353,3 +1353,127 @@ test('on a turned page, the signature buttons stay top-right and bottom-right, a
     await page.keyboard.press('Delete');
   }
 });
+
+/* ---------- text and marks ---------- */
+
+async function addText(page, text) {
+  await page.click('#addText');
+  const area = page.locator('.text-edit');
+  await expect(area).toBeFocused();
+  await page.keyboard.type(text);
+  return area;
+}
+
+test('adds text on the page at a readable size, and exports it there', async ({ page }) => {
+  await load(page);
+  const area = await addText(page, 'Ada Lovelace');
+  await page.keyboard.press('Escape');
+  await expect(area).toHaveCount(0);
+  const item = page.locator('.sig');
+  await expect(item).toHaveCount(1);
+  await expect(item).toBeFocused();
+  await expect(item).toHaveAttribute('aria-label', /^Ada Lovelace\. Text/);
+  await expect(page.locator('.tsig')).toHaveCount(1);
+  const [p0] = signatures(await download(page));
+  expect(p0.rects).toHaveLength(1);
+  const [x0, y0, x1, y1] = p0.rects[0];
+  // One line of 11 pt letters, with a little room around them.
+  expect(y1 - y0).toBeGreaterThan(14);
+  expect(y1 - y0).toBeLessThan(18);
+  expect(x1 - x0).toBeGreaterThan(50);
+});
+
+test('text left empty goes away when you stop typing', async ({ page }) => {
+  await load(page);
+  await page.click('#addText');
+  await expect(page.locator('.text-edit')).toBeFocused();
+  await page.click('#pageLabel');
+  await expect(page.locator('.text-edit')).toHaveCount(0);
+  await expect(page.locator('.sig')).toHaveCount(0);
+});
+
+test('tapping text again opens it for typing; the box grows with the text', async ({ page }) => {
+  await load(page);
+  await addText(page, 'Ada');
+  await page.keyboard.press('Escape');
+  const item = page.locator('.sig');
+  const before = await item.boundingBox();
+  await item.click(); // already selected: opens it
+  await expect(page.locator('.text-edit')).toBeFocused();
+  await expect(page.locator('.text-edit')).toHaveValue('Ada');
+  await page.keyboard.type(' Lovelace');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('London');
+  const after = await item.boundingBox();
+  expect(after.width).toBeGreaterThan(before.width * 2);
+  expect(after.height).toBeGreaterThan(before.height * 1.6);
+  expect(Math.abs(after.x - before.x)).toBeLessThan(2); // grew from its left edge
+  expect(Math.abs(after.y - before.y)).toBeLessThan(2);
+  await page.keyboard.press('Control+Enter');
+  await expect(item).toHaveAttribute('aria-label', /^Ada Lovelace\nLondon\. Text/);
+  // Enter on the selected text opens it again.
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.text-edit')).toBeFocused();
+});
+
+test('Hebrew text grows from its right edge', async ({ page }) => {
+  await load(page, PDF, '/?lang=he');
+  await addText(page, 'שלום');
+  const item = page.locator('.sig');
+  const before = await item.boundingBox();
+  await page.keyboard.type(' עולם ומלואו');
+  const after = await item.boundingBox();
+  expect(after.width).toBeGreaterThan(before.width * 1.5);
+  expect(Math.abs(after.x + after.width - before.x - before.width)).toBeLessThan(2);
+});
+
+test('adds check marks and crosses, and exports them', async ({ page }) => {
+  await load(page);
+  await page.click('#addCheck');
+  await expect(page.locator('.sig')).toBeFocused();
+  await expect(page.locator('.sig')).toHaveAttribute('aria-label', /^Check mark\./);
+  await page.keyboard.press('Shift+ArrowDown');
+  await page.click('#addCross');
+  await expect(page.locator('.sig')).toHaveCount(2);
+  const [p0] = signatures(await download(page));
+  expect(p0.rects).toHaveLength(2);
+  for (const [x0, y0, x1, y1] of p0.rects) {
+    expect(x1 - x0).toBeCloseTo(14, 0);
+    expect(y1 - y0).toBeCloseTo(14, 0);
+  }
+});
+
+test('text on a turned page is typed upright, and exported across the page', async ({ page }) => {
+  await turnFirstPage(page);
+  const area = await addText(page, 'Ada Lovelace');
+  // The field isn't inside the turned page, so it reads upright.
+  expect(await area.evaluate((a) => a.closest('#stage'))).toBeNull();
+  const shown = await page.locator('.sig').boundingBox();
+  expect(shown.width).toBeGreaterThan(shown.height * 3);
+  await page.keyboard.press('Escape');
+  const [p0] = signatures(await download(page));
+  const [x0, y0, x1, y1] = p0.rects[0];
+  expect(y1 - y0).toBeGreaterThan((x1 - x0) * 3);
+});
+
+test('undo takes back typed text, and redo brings it back', async ({ page }) => {
+  await load(page);
+  await addText(page, 'Ada');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#undo')).toBeEnabled();
+  await page.click('#undo');
+  await expect(page.locator('.sig')).toHaveCount(0);
+  await page.click('#redo');
+  await expect(page.locator('.sig')).toHaveAttribute('aria-label', /^Ada\. Text/);
+});
+
+test('on a touch screen, only the selected item shows its buttons', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'touch screens only');
+  await load(page);
+  await page.click('#addCheck');
+  await page.click('#addCross');
+  const [check, cross] = [page.locator('.sig').nth(0), page.locator('.sig').nth(1)];
+  await expect(cross).toBeFocused();
+  await expect(cross.locator('.sig-del')).toBeVisible();
+  await expect(check.locator('.sig-del')).toBeHidden();
+});

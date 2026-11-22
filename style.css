@@ -216,7 +216,9 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 .sig:focus { outline-color: var(--accent); }
 .sig-del, .sig-rs { position: absolute; width: 22px; height: 22px; border-radius: 99px; border: 0; background: var(--accent); color: var(--accent-ink); font: 700 14px/22px var(--font); padding: 0; opacity: 0; }
 .sig:hover .sig-del, .sig:hover .sig-rs, .sig:focus-within .sig-del, .sig:focus-within .sig-rs, .sig.active .sig-del, .sig.active .sig-rs { opacity: 1; }
-@media (pointer: coarse) { .sig-del, .sig-rs { opacity: 1; } }
+/* Touch: only the selected one shows its buttons (small text and marks would
+   be covered by them), and the others' can't be tapped by accident. */
+@media (pointer: coarse) { .sig:focus-within .sig-del, .sig:focus-within .sig-rs { opacity: 1; } .sig:not(:focus-within) .sig-del, .sig:not(:focus-within) .sig-rs { visibility: hidden; } }
 .sig-del { top: -12px; right: -12px; cursor: pointer; }
 .sig-rs { bottom: -12px; right: -12px; cursor: nwse-resize; }
 .stage-box.excluded .sig { opacity: .45; }
@@ -294,6 +296,13 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 .dlg .remember-hint { margin: 2px 0 0 !important; }
 .sign-more { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 4px; }
 .sign-more .btn { padding: 8px 10px; font-size: 14px; }
+.fill-row { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; margin: 0 0 4px; }
+.fill-row .btn { padding: 8px 10px; font-size: 14px; }
+.fill-row .mark { min-width: 44px; font-size: 18px; line-height: 1; }
+.sig.editing img, .sig.editing .sig-del, .sig.editing .sig-rs { visibility: hidden; }
+/* Typing on the page: outside the turning stage, so it reads upright, and
+   never under 16px, so phones don't zoom in on it. */
+.text-edit { position: absolute; z-index: 8; margin: 0; border: 0; outline: 2px solid var(--accent); border-radius: 2px; background: rgba(255,255,255,.92); resize: none; overflow: hidden; white-space: pre; box-sizing: content-box; min-width: 2em; }
 #copyAll { margin-top: 4px; padding: 8px 10px; font-size: 14px; }
 #copyDone { margin: 4px 0 0 !important; }
 .undo-redo { display: flex; gap: 6px; margin-inline-start: 4px; }

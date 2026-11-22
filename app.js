@@ -7,7 +7,8 @@ import { parseRange, formatRange } from './pages.js';
 import { isLargeForDevice, isMemoryError } from './limits.js';
 import { t, ltr, isRtl, lang, locale, setLang, pickLang } from './i18n.js';
 import { makeZip } from './zip.js';
-import { INKS, fontsFor, createPad, imageToSignature, typedSignature, loadFont, fontCss, signaturePng, signaturePreview } from './sign.js';
+import { INKS, fontsFor, createPad, imageToSignature, typedSignature, loadFont, fontCss, signaturePng, signaturePreview,
+  textItem, markItem, isRtlText, TEXT_FONT, TEXT_LINE, TEXT_PAD } from './sign.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdfjs/pdf.worker.min.mjs', import.meta.url).href;
 const PDFJS_ASSETS = {
@@ -34,7 +35,7 @@ const el = Object.fromEntries([
   'signCard', 'addSign', 'signHint', 'signDlg', 'tabDraw', 'tabType', 'tabUpload', 'paneDraw', 'paneType', 'paneUpload', 'pad', 'sigFile', 'sigPick', 'sigImg',
   'sigName', 'fontChips',
   'sigErr', 'sigClear', 'sigCancel', 'sigUse', 'sigRemember', 'savedSigs', 'savedList', 'signDlgTitle',
-  'addInitials', 'addDate', 'copyAll', 'copyDone', 'typeHint',
+  'addInitials', 'addDate', 'copyAll', 'copyDone', 'typeHint', 'addText', 'addCheck', 'addCross',
 ].map((id) => [id, $(id)]));
 
 let state = null;
@@ -396,7 +397,7 @@ const stepPage = (d) => showPage(state.order[state.order.indexOf(state.page) + d
 el.showContent.addEventListener('change', placeOverlay);
 el.includePage.addEventListener('change', () => { setSelected(state.page, el.includePage.checked); });
 document.addEventListener('keydown', (e) => {
-  if (!state || el.work.hidden || el.signDlg.open || e.target.closest('input, button, select, .sig')) return;
+  if (!state || el.work.hidden || el.signDlg.open || e.target.closest('input, textarea, button, select, .sig')) return;
   // Pages run right to left in Hebrew, so the left arrow goes forward there.
   const fwd = isRtl() ? 'ArrowLeft' : 'ArrowRight', back = isRtl() ? 'ArrowRight' : 'ArrowLeft';
   if (e.key === back) stepPage(-1);
@@ -901,6 +902,7 @@ function restore(snap) {
     state.order = [...snap.order];
     state.rot = Int16Array.from(snap.rot);
     state.selected = Uint8Array.from(snap.selected);
+    dropTextEditor();
     state.signs = snap.signs.map((x) => ({ ...x, box: { ...x.box } }));
     activeSign = null;
     el.copyAll.hidden = true;
@@ -1084,6 +1086,138 @@ async function addDate() {
   placeSignature(await typedSignature(text, font, INKS[ink]), { width: 0.26 });
 }
 
+/* ---------- text and marks ---------- */
+
+const TEXT_PT = 11, MARK_PT = 14; // new ones' size on the page, in points
+
+el.addText.addEventListener('click', () => {
+  if (!state) return;
+  const item = placeSized(textItem('', INKS[ink]), TEXT_PT * (TEXT_LINE + 2 * TEXT_PAD));
+  editText(item);
+});
+el.addCheck.addEventListener('click', () => { if (state) signNode(placeSized(markItem('check', INKS[ink]), MARK_PT))?.focus(); });
+el.addCross.addEventListener('click', () => { if (state) signNode(placeSized(markItem('cross', INKS[ink]), MARK_PT))?.focus(); });
+
+// Put it in the middle of the current page's crop area, `heightPt` tall as
+// the page shows.
+function placeSized(sig, heightPt) {
+  const p = state.page, g = state.groupOf[p], crop = cropOf(p).box;
+  const side = (state.rot[p] || 0) % 180 !== 0;
+  const [bw, bh] = viewToBox(g, side, heightPt * sig.aspect, heightPt);
+  const cx = (crop.x0 + crop.x1) / 2, cy = (crop.y0 + crop.y1) / 2;
+  const item = { page: p, sig };
+  item.box = clampSign(item, { x0: cx - bw / 2, y0: cy - bh / 2, x1: cx + bw / 2, y1: cy + bh / 2 });
+  state.signs.push(item);
+  renderSigns();
+  return item;
+}
+
+// A size as the page shows (points across, points down) in the page's own
+// 0..1 units; on a page turned a quarter, across is down the page.
+const viewToBox = (g, side, w, h) => (side ? [h / g.W, w / g.H] : [w / g.W, h / g.H]);
+
+// Which page corner (in the page's own frame) shows at the top left and top
+// right on screen, for each turn of the page.
+const VIEW_CORNER = { 0: { tl: 'tl', tr: 'tr' }, 90: { tl: 'bl', tr: 'tl' }, 180: { tl: 'br', tr: 'bl' }, 270: { tl: 'tr', tr: 'br' } };
+
+// Typing on the page. The text is typed in a field over the page, outside
+// the stage (so it reads upright on a turned page), and the box grows from
+// its starting corner as you type: top left, or top right for right-to-left
+// text. The size of the letters stays as it is.
+let textEdit = null; // { item, area }
+
+function editText(item) {
+  if (textEdit?.item === item) return;
+  finishTextEdit();
+  const node = signNode(item);
+  if (!node) return;
+  const area = Object.assign(document.createElement('textarea'), { className: 'text-edit', value: item.sig.text, spellcheck: true, rows: 1 });
+  area.dir = 'auto';
+  area.wrap = 'off';
+  area.setAttribute('aria-label', t('sign.textPh'));
+  area.placeholder = t('sign.textPh');
+  textEdit = { item, area };
+  node.classList.add('editing');
+  el.stageBox.append(area);
+  area.addEventListener('input', () => textChanged());
+  area.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) { e.preventDefault(); finishTextEdit(true); }
+  });
+  area.addEventListener('blur', () => { if (textEdit?.area === area) finishTextEdit(); });
+  layoutTextEditor();
+  area.focus();
+  area.setSelectionRange(area.value.length, area.value.length);
+}
+
+// The size of one em of this text on the page, in points.
+function textEm(item) {
+  const g = state.groupOf[item.page], b = item.box;
+  const side = (state.rot[item.page] || 0) % 180 !== 0;
+  const viewH = side ? (b.x1 - b.x0) * g.W : (b.y1 - b.y0) * g.H;
+  return viewH / (item.sig.lines * TEXT_LINE + 2 * TEXT_PAD);
+}
+
+function textChanged() {
+  const { item, area } = textEdit;
+  const em = textEm(item), g = state.groupOf[item.page], b = item.box;
+  const turn = state.rot[item.page] || 0;
+  const sig = textItem(area.value, item.sig.color);
+  const [bw, bh] = viewToBox(g, turn % 180 !== 0, em * (sig.w + 2 * TEXT_PAD), em * (sig.lines * TEXT_LINE + 2 * TEXT_PAD));
+  // Keep the corner it grows from where it is.
+  const corner = VIEW_CORNER[turn][isRtlText(area.value) ? 'tr' : 'tl'];
+  const [x0, x1] = corner[1] === 'l' ? [b.x0, b.x0 + bw] : [b.x1 - bw, b.x1];
+  const [y0, y1] = corner[0] === 't' ? [b.y0, b.y0 + bh] : [b.y1 - bh, b.y1];
+  item.sig = sig;
+  item.preview = null;
+  item.box = clampSign(item, { x0, y0, x1, y1 });
+  const node = signNode(item);
+  if (node) setSigRect(node);
+  layoutTextEditor();
+  renderThumbSigns(item.page);
+}
+
+// The field sits exactly over the text when that's big enough to read; on
+// a small page it's larger than the text, from the same corner.
+function layoutTextEditor() {
+  const { item, area } = textEdit;
+  const node = signNode(item);
+  if (!node) return;
+  const px = (textEm(item) * el.stage.offsetWidth) / state.groupOf[item.page].W; // one em on screen
+  const size = Math.max(16, px);
+  Object.assign(area.style, { font: `${size}px/${TEXT_LINE} ${TEXT_FONT}`, color: item.sig.color, padding: `${TEXT_PAD * size}px` });
+  area.rows = Math.max(1, area.value.split('\n').length);
+  area.style.width = '0';
+  area.style.width = `${area.scrollWidth}px`;
+  const r = node.getBoundingClientRect(), box = el.stageBox.getBoundingClientRect();
+  const rtl = isRtlText(area.value) || (!area.value && isRtl());
+  area.style.top = `${r.top - box.top}px`;
+  if (rtl) { area.style.left = 'auto'; area.style.right = `${box.right - r.right}px`; }
+  else { area.style.right = 'auto'; area.style.left = `${r.left - box.left}px`; }
+}
+
+// Done typing: empty text is removed; otherwise it stays selected.
+function finishTextEdit(refocus = false) {
+  if (!textEdit) return;
+  const { item } = textEdit;
+  dropTextEditor();
+  if (!item.sig.text.trim()) { removeSign(item); return; }
+  // Updated in place: a click that ended the typing may be on another
+  // item, whose node must stay.
+  const node = signNode(item);
+  if (!node) return;
+  node.setAttribute('aria-label', signLabel(item));
+  showPreview(item, node.querySelector('img'));
+  if (refocus) node.focus();
+}
+
+function dropTextEditor() {
+  if (!textEdit) return;
+  const { item, area } = textEdit;
+  textEdit = null;
+  area.remove();
+  signNode(item)?.classList.remove('editing');
+}
+
 /* ---------- the same signature on every page ---------- */
 
 let activeSign = null; // the placed signature last selected
@@ -1225,6 +1359,7 @@ const signNodes = new Map(); // item -> element on the stage
 function signNode(item) { return signNodes.get(item); }
 
 function renderSigns() {
+  if (textEdit && !(state && state.signs.includes(textEdit.item) && textEdit.item.page === state.page)) dropTextEditor();
   for (const node of signNodes.values()) node.remove();
   signNodes.clear();
   if (!state) return;
@@ -1233,11 +1368,10 @@ function renderSigns() {
     node.className = 'sig';
     node.tabIndex = 0;
     node.setAttribute('role', 'group'); // not img: an image can't hold the × button
-    // Typed ones (names, initials, dates) say what they say.
-    node.setAttribute('aria-label', item.sig.kind === 'type' ? `${item.sig.text}. ${t('sign.itemAria')}` : t('sign.itemAria'));
+    node.setAttribute('aria-label', signLabel(item));
     const img = document.createElement('img');
     img.alt = '';
-    (item.preview ??= signaturePreview(item.sig)).then((url) => { img.src = url; });
+    showPreview(item, img);
     const del = Object.assign(document.createElement('button'), { type: 'button', className: 'sig-del', textContent: '×' });
     del.setAttribute('aria-label', t('sign.remove'));
     del.title = t('sign.remove');
@@ -1247,11 +1381,26 @@ function renderSigns() {
     node.append(img, del, rs);
     node.item = item;
     setSigRect(node);
+    if (textEdit?.item === item) node.classList.add('editing');
     el.stage.append(node);
     signNodes.set(item, node);
   }
   el.signHint.hidden = !state.signs.length;
   renderThumbSigns(state.page);
+  if (textEdit) layoutTextEditor();
+}
+
+// Typed ones (names, initials, dates, text) say what they say.
+function signLabel(item) {
+  const { kind, text, mark } = item.sig;
+  if (kind === 'text') return `${text || t('sign.textPh')}. ${t('sign.textAria')}`;
+  if (kind === 'mark') return `${t(mark === 'cross' ? 'sign.cross' : 'sign.check')}. ${t('sign.markAria')}`;
+  return kind === 'type' ? `${text}. ${t('sign.itemAria')}` : t('sign.itemAria');
+}
+
+function showPreview(item, img) {
+  const p = (item.preview ??= signaturePreview(item.sig));
+  p.then((url) => { if (item.preview === p) img.src = url; });
 }
 
 function removeSign(item) {
@@ -1270,14 +1419,18 @@ function clampSign(item, b) {
 
 let signDrag = null, thumbSignFrame = 0;
 el.stage.addEventListener('pointerdown', (e) => {
-  const node = e.target.closest('.sig');
+  let node = e.target.closest('.sig');
   if (!node || e.button > 0) return;
   e.stopPropagation();
   if (e.target.closest('.sig-del')) return;
+  // Finish typing first: an empty text goes, and the page's items with it
+  // are drawn again.
+  if (textEdit) { const item = node.item; finishTextEdit(); node = signNode(item); if (!node) return; }
   e.preventDefault();
+  const wasFocused = document.activeElement === node;
   node.focus();
   node.setPointerCapture(e.pointerId);
-  signDrag = { node, item: node.item, id: e.pointerId, resize: !!e.target.closest('.sig-rs'),
+  signDrag = { node, item: node.item, id: e.pointerId, resize: !!e.target.closest('.sig-rs'), wasFocused,
     sx: e.clientX, sy: e.clientY, w: el.stage.offsetWidth, h: el.stage.offsetHeight, start: { ...node.item.box } };
 });
 el.stage.addEventListener('pointermove', (e) => {
@@ -1309,7 +1462,16 @@ el.stage.addEventListener('pointermove', (e) => {
   cancelAnimationFrame(thumbSignFrame);
   thumbSignFrame = requestAnimationFrame(() => renderThumbSigns(d.item.page));
 });
-const endSignDrag = (e) => { if (signDrag && e.pointerId === signDrag.id) signDrag = null; };
+const endSignDrag = (e) => {
+  if (!signDrag || e.pointerId !== signDrag.id) return;
+  const d = signDrag;
+  signDrag = null;
+  // A tap on text that was already selected (a second tap, or a double
+  // click) opens it for typing; on small text the tap may land on its
+  // resize button, which does nothing without a drag.
+  const still = Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 5;
+  if (e.type === 'pointerup' && still && d.wasFocused && d.item.sig.kind === 'text') editText(d.item);
+};
 el.stage.addEventListener('pointerup', endSignDrag);
 el.stage.addEventListener('pointercancel', endSignDrag);
 el.stage.addEventListener('click', (e) => {
@@ -1321,6 +1483,7 @@ el.stage.addEventListener('keydown', (e) => {
   if (!node || e.target !== node) return;
   const item = node.item, b = item.box, step = e.shiftKey ? 0.05 : 0.005;
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); removeSign(item); return; }
+  if ((e.key === 'Enter' || e.key === 'F2') && item.sig.kind === 'text') { e.preventDefault(); editText(item); return; }
   // Arrows move it on screen, whichever way the page is turned.
   const px = step * el.stage.offsetWidth;
   const key = { ArrowLeft: [-px, 0], ArrowRight: [px, 0], ArrowUp: [0, -px], ArrowDown: [0, px] }[e.key];
