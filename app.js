@@ -8,6 +8,7 @@ import { isLargeForDevice, isMemoryError } from './limits.js';
 import { t, ltr, isRtl, lang, locale, setLang, pickLang } from './i18n.js';
 import { makeZip } from './zip.js';
 import { imagesToPdfs, isImageFile, isPdfFile } from './images.js';
+import { NUMBER_PT, NUMBER_LINE, textWidth, numberCanvas, watermarkCanvas, canvasPng, numberSpot } from './marks.js';
 import { INKS, fontsFor, createPad, imageToSignature, typedSignature, loadFont, fontCss, signaturePng, signaturePreview,
   textItem, markItem, isRtlText, TEXT_FONT, TEXT_LINE, TEXT_PAD, fieldPng } from './sign.js';
 
@@ -37,6 +38,7 @@ const el = Object.fromEntries([
   'sigName', 'fontChips',
   'sigErr', 'sigClear', 'sigCancel', 'sigUse', 'sigRemember', 'savedSigs', 'savedList', 'signDlgTitle',
   'addInitials', 'addDate', 'copyAll', 'copyDone', 'typeHint', 'addText', 'addCheck', 'addCross', 'formHint',
+  'marksCard', 'numOn', 'numOpts', 'numWhere', 'numStyle', 'wmOn', 'wmOpts', 'wmText',
 ].map((id) => [id, $(id)]));
 
 let state = null;
@@ -92,7 +94,7 @@ async function open(files, passwords = []) {
   el.about.hidden = true;
   el.work.hidden = false;
   el.reset.hidden = false;
-  for (const k of ['detectCard', 'boxCard', 'signCard', 'exportCard', 'error', 'saveProgress', 'pwCard']) el[k].hidden = true;
+  for (const k of ['detectCard', 'boxCard', 'signCard', 'marksCard', 'exportCard', 'error', 'saveProgress', 'pwCard']) el[k].hidden = true;
   const named = () => {
     el.fname.textContent = files.length === 1 ? files[0].name : t('file.many', { n: files.length });
     el.fname.title = files.map((f) => f.name).join('\n');
@@ -253,6 +255,8 @@ async function analyse(my) {
   el.progress.hidden = true;
   el.exportCard.hidden = false;
   el.signCard.hidden = false;
+  el.marksCard.hidden = false;
+  showNumStyles();
   refreshPanel();
   resetHistory(); // the detected crops are where undo stops
   warmWorker();
@@ -475,6 +479,7 @@ async function showPage(n) {
 function placeOverlay() {
   const g = curGroup();
   if (!g) return;
+  schedulePageMarks();
   setRect(el.crop, curCrop().box);
   setRect(el.shade, curCrop().box);
   const showC = el.showContent.checked && g.content;
@@ -747,6 +752,7 @@ function readOrderFromGrid() {
 
 function orderChanged() {
   noteChange();
+  schedulePageMarks();
   el.resetOrder.hidden = state.order.every((p, i) => p === i + 1);
   updatePager();
 }
@@ -816,6 +822,8 @@ function selectedPages() {
 }
 
 function updateSelectionUI() {
+  showNumStyles();
+  schedulePageMarks();
   noteChange();
   const pages = selectedPages();
   el.selCount.textContent = t('pages.selected', { k: pages.length, n: state.n });
@@ -836,6 +844,7 @@ function updateSelectionUI() {
 
 function updateCurrentInclusion() {
   noteChange();
+  schedulePageMarks();
   const on = !!state.selected[state.page];
   el.includePage.checked = on;
   el.excludedBadge.hidden = on;
@@ -1655,14 +1664,122 @@ async function signatureStamps() {
     if (!state.selected[item.page]) continue;
     const vp = (await getPage(item.page)).getViewport({ scale: 1 });
     const b = item.box;
-    const [ax, ay] = vp.convertToPdfPoint(b.x0 * vp.width, b.y0 * vp.height);
-    const [bx, by] = vp.convertToPdfPoint(b.x1 * vp.width, b.y1 * vp.height);
     // Drawn the way it shows: on a page turned a quarter, across the box.
     const side = (state.rot[item.page] || 0) % 180 !== 0;
     const [pw, ph] = side ? [(b.y1 - b.y0) * vp.height, (b.x1 - b.x0) * vp.width] : [(b.x1 - b.x0) * vp.width, (b.y1 - b.y0) * vp.height];
     const k = Math.min(300 / 72, 2400 / pw);
     const png = await signaturePng(item.sig, pw * k, ph * k);
-    stamps.push({ page: item.page - 1, rect: [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)], png });
+    stamps.push({ page: item.page - 1, rect: pdfRect(vp, b), png });
+  }
+  return stamps;
+}
+
+// A box in the page's 0..1 units as a rectangle in PDF user space.
+function pdfRect(vp, b) {
+  const [ax, ay] = vp.convertToPdfPoint(b.x0 * vp.width, b.y0 * vp.height);
+  const [bx, by] = vp.convertToPdfPoint(b.x1 * vp.width, b.y1 * vp.height);
+  return [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)];
+}
+
+/* ---------- page numbers and watermark ---------- */
+
+// Added to every exported page when the export runs, and shown on the page
+// in the preview. Positions follow the page as cropped and turned.
+
+for (const c of [el.numOn, el.numWhere, el.numStyle, el.wmOn]) c.addEventListener('change', marksChanged);
+el.wmText.addEventListener('input', marksChanged);
+
+function marksChanged() {
+  el.numOpts.hidden = !el.numOn.checked;
+  el.wmOpts.hidden = !el.wmOn.checked;
+  if (el.wmOn.checked && document.activeElement === el.wmOn && !el.wmText.value) el.wmText.focus();
+  schedulePageMarks();
+}
+
+// The style menu shows what the numbers look like for this document.
+function showNumStyles() {
+  if (!state) return;
+  const total = keepList().length || state.n;
+  for (const o of el.numStyle.options) o.textContent = numberText(o.value, 1, total);
+}
+
+function numberText(style, n, total) {
+  return style === 'of' ? ltr(`${n} / ${total}`) : style === 'page' ? t('marks.pageOf', { n, total }) : String(n);
+}
+
+// The crop as shown, in points across and down, and its turn.
+function shownCrop(p) {
+  const g = state.groupOf[p], c = cropOf(p).box, deg = state.rot[p] || 0;
+  const cw = (c.x1 - c.x0) * g.W, ch = (c.y1 - c.y0) * g.H;
+  return { c, deg, vw: deg % 180 ? ch : cw, vh: deg % 180 ? cw : ch };
+}
+
+// [u0, v0, u1, v1] in 0..1 of the page as shown, to a box in the page's own
+// 0..1 units: undo the turn (clockwise), then place it in the crop.
+function shownToBox(p, [u0, v0, u1, v1]) {
+  const { c, deg } = shownCrop(p);
+  const back = (u, v) => (deg === 90 ? [v, 1 - u] : deg === 180 ? [1 - u, 1 - v] : deg === 270 ? [1 - v, u] : [u, v]);
+  const [a, b] = [back(u0, v0), back(u1, v1)];
+  const x = (f) => c.x0 + f * (c.x1 - c.x0), y = (f) => c.y0 + f * (c.y1 - c.y0);
+  return { x0: x(Math.min(a[0], b[0])), y0: y(Math.min(a[1], b[1])), x1: x(Math.max(a[0], b[0])), y1: y(Math.max(a[1], b[1])) };
+}
+
+// What page p gets: [{ kind, text, box, w, h }], w×h in points as shown.
+function marksFor(p) {
+  if (!state.selected[p]) return [];
+  const out = [], { vw, vh } = shownCrop(p);
+  if (el.numOn.checked) {
+    const kept = keepList();
+    const text = numberText(el.numStyle.value, kept.indexOf(p - 1) + 1, kept.length);
+    const h = NUMBER_PT * NUMBER_LINE, w = (textWidth(text) + 0.6) * NUMBER_PT;
+    out.push({ kind: 'number', text, w, h, box: shownToBox(p, numberSpot(el.numWhere.value, w, h, vw, vh)) });
+  }
+  const wm = el.wmText.value.trim();
+  if (el.wmOn.checked && wm) out.push({ kind: 'watermark', text: wm, w: vw, h: vh, box: shownToBox(p, [0, 0, 1, 1]) });
+  return out;
+}
+
+const drawMark = (m, w, h) => (m.kind === 'number' ? numberCanvas(m.text, w, h) : watermarkCanvas(m.text, w, h));
+
+let marksFrame = 0;
+function schedulePageMarks() {
+  cancelAnimationFrame(marksFrame);
+  marksFrame = requestAnimationFrame(renderPageMarks);
+}
+
+// The preview: each mark as an image on the stage, turned back on a turned
+// page (as signatures are), so it reads as it will be exported.
+function renderPageMarks() {
+  for (const n of el.stage.querySelectorAll('.page-mark')) n.remove();
+  if (!state || !state.groups.every((g) => g.done)) return;
+  const p = state.page, g = state.groupOf[p], deg = state.rot[p] || 0;
+  const scale = (el.stage.offsetWidth / g.W) * Math.min(2, window.devicePixelRatio || 1);
+  for (const m of marksFor(p)) {
+    const node = Object.assign(document.createElement('div'), { className: `page-mark pm-${m.kind}` });
+    const canvas = drawMark(m, m.w * scale, m.h * scale);
+    canvas.setAttribute('aria-hidden', 'true');
+    setRect(node, m.box);
+    const w = (m.box.x1 - m.box.x0) * el.stage.offsetWidth, h = (m.box.y1 - m.box.y0) * el.stage.offsetHeight;
+    const [iw, ih] = deg % 180 ? [h, w] : [w, h];
+    Object.assign(canvas.style, { position: 'absolute', left: '50%', top: '50%', width: `${iw}px`, height: `${ih}px`,
+      transform: `translate(-50%, -50%) rotate(${-deg}deg)` });
+    node.append(canvas);
+    el.stage.append(node);
+  }
+}
+
+// For the engine: numbers at 300 ppi; the watermark at 150, which is plenty
+// for large soft letters, drawn once for pages of the same shape.
+async function markStamps() {
+  const stamps = [], shared = new Map();
+  for (const i of keepList()) {
+    const p = i + 1, vp = (await getPage(p)).getViewport({ scale: 1 });
+    for (const m of marksFor(p)) {
+      const k = Math.min((m.kind === 'number' ? 300 : 150) / 72, 3000 / Math.max(m.w, m.h));
+      const key = `${m.kind}|${m.text}|${Math.round(m.w)}|${Math.round(m.h)}`;
+      if (!shared.has(key)) shared.set(key, await canvasPng(drawMark(m, m.w * k, m.h * k)));
+      stamps.push({ page: i, rect: pdfRect(vp, m.box), png: shared.get(key) });
+    }
   }
   return stamps;
 }
@@ -2024,7 +2141,7 @@ async function exportPdf() {
     }
     const ppi = Number(el.ppi.value);
     const compress = el.compress.checked ? { ppi, quality: QUALITY[ppi] ?? 78 } : null;
-    const stamps = await signatureStamps();
+    const stamps = [...await signatureStamps(), ...await markStamps()];
     const fields = await fieldFills();
 
     say(t('export.loading'));
@@ -2196,7 +2313,7 @@ function rerender() {
   showDlgTitle();
   if (!el.pwCard.hidden) showPwText();
   if (state) { showStripHint(); renderHidden(); }
-  if (state) renderSigns();
+  if (state) { renderSigns(); showNumStyles(); schedulePageMarks(); }
   showSigWarn();
   showCompressHint();
   showEstimate();

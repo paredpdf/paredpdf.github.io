@@ -126,3 +126,15 @@ test('upright for a page with its own rotation plus one added in Pared', async (
   const { red, blue } = look(bytes);
   assert.ok(red.y < blue.y - 10 && Math.abs(red.x - blue.x) < 2, JSON.stringify({ red, blue }));
 });
+
+test('a picture stamped on many pages is stored once', async () => {
+  const png = testPng();
+  const stamps = [0, 1, 2].map((page) => ({ page, rect: [10, 10, 70, 50], png }));
+  const { bytes } = await processPdf(mupdf, makePdf([{ W: 200, H: 200 }, { W: 200, H: 200 }, { W: 200, H: 200 }]), { stamps });
+  const doc = new mupdf.PDFDocument(bytes);
+  const refs = new Set();
+  for (let i = 0; i < 3; i++) {
+    doc.findPage(i).get('Resources').get('XObject').forEach((v, k) => { if (k.startsWith('PaSig')) refs.add(v.asIndirect()); });
+  }
+  assert.equal(refs.size, 1);
+});

@@ -187,6 +187,27 @@
           <p class="hint" data-i18n="sign.note">This adds a picture of your signature. It doesn't prove who signed.</p>
         </div>
 
+        <div class="card" id="marksCard" hidden>
+          <div class="card-h"><span data-i18n="marks.title">On every page</span></div>
+          <label class="check"><input type="checkbox" id="numOn"> <span data-i18n="marks.numbers">Page numbers</span></label>
+          <div class="mark-opts" id="numOpts" hidden>
+            <label class="field"><span data-i18n="marks.where">Where</span>
+              <select id="numWhere">
+                <option value="bc" data-i18n="marks.bc">Bottom centre</option>
+                <option value="br" data-i18n="marks.br">Bottom right</option>
+                <option value="bl" data-i18n="marks.bl">Bottom left</option>
+              </select>
+            </label>
+            <label class="field"><span data-i18n="marks.style">Style</span>
+              <select id="numStyle"><option value="n">1</option><option value="of">1 / 6</option><option value="page">Page 1 of 6</option></select>
+            </label>
+          </div>
+          <label class="check"><input type="checkbox" id="wmOn"> <span data-i18n="marks.watermark">Watermark</span></label>
+          <div class="mark-opts" id="wmOpts" hidden>
+            <input type="text" class="signame" id="wmText" dir="auto" maxlength="60" spellcheck="false" data-i18n-placeholder="marks.wmPh" data-i18n-aria-label="marks.wmAria" placeholder="Copy for the bank only" aria-label="Watermark text">
+            <p class="hint" data-i18n="marks.wmHint">Written across each page in light grey, so a copy can't be used for anything else.</p>
+          </div>
+        </div>
         <div class="card" id="exportCard" hidden>
           <div class="card-h"><span data-i18n="export.title">Export</span></div>
           <p class="warn" id="memWarn" hidden data-i18n="export.memWarn">This is a large file for a phone or tablet. If the export fails, export fewer pages at a time.</p>

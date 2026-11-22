@@ -459,6 +459,7 @@ function setLook(mupdf, doc, w, png) {
 
 function addStamps(mupdf, doc, stamps, n, extraRotate) {
   const byPage = new Map();
+  const refs = new Map(); // png -> image object: one picture used on many pages is stored once
   for (const st of stamps) {
     if (!(st.page >= 0 && st.page < n)) throw new Error(`No page ${st.page + 1} to sign`);
     byPage.set(st.page, [...(byPage.get(st.page) ?? []), st]);
@@ -483,9 +484,12 @@ function addStamps(mupdf, doc, stamps, n, extraRotate) {
     list.forEach((st, k) => {
       let name = `PaSig${k}`;
       while (xo.get(name).isStream()) name += 'x';
-      const image = new mupdf.Image(st.png);
-      xo.put(name, doc.addImage(image));
-      image.destroy?.();
+      if (!refs.has(st.png)) {
+        const image = new mupdf.Image(st.png);
+        refs.set(st.png, doc.addImage(image));
+        image.destroy?.();
+      }
+      xo.put(name, refs.get(st.png));
       ops += `q ${uprightMatrix(st.rect, deg).map(num).join(' ')} cm /${name} Do Q\n`;
     });
     res.put('XObject', xo);

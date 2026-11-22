@@ -1607,3 +1607,66 @@ test('several photos shared from another app open as one PDF', async ({ page }) 
   await expect(page.locator('#fname')).toHaveText('turned-photo.pdf');
   await expect(page.locator('#pageLabel')).toHaveText('Page 1 of 2');
 });
+
+/* ---------- page numbers and watermark ---------- */
+
+test('page numbers go at the bottom of every exported page, counting only those', async ({ page }) => {
+  await load(page);
+  await page.check('#numOn');
+  await expect(page.locator('#numOpts')).toBeVisible();
+  await expect(page.locator('.pm-number')).toHaveCount(1);
+  await page.selectOption('#numStyle', 'of');
+  await expect(page.locator('#numStyle option[value="of"]')).toHaveText('1 / 6');
+  await page.fill('#range', '1-5');
+  await page.locator('#range').press('Enter');
+  await expect(page.locator('#numStyle option[value="of"]')).toHaveText('1 / 5');
+  const pages = signatures(await download(page));
+  expect(pages).toHaveLength(5);
+  for (const { rects: [r], media: m } of pages) {
+    // Small, centred, 24 pt above the bottom of the cropped page.
+    expect(r[3] - r[1]).toBeCloseTo(14, 0);
+    expect((r[0] + r[2]) / 2).toBeCloseTo((m[0] + m[2]) / 2, 0);
+    expect(r[1] - m[1]).toBeCloseTo(24, 0);
+  }
+});
+
+test('on a turned page, the number sits at the bottom as the page shows', async ({ page }) => {
+  await turnFirstPage(page);
+  await page.check('#numOn');
+  await page.selectOption('#numWhere', 'br');
+  const [p0] = signatures(await download(page));
+  const [x0, y0, x1, y1] = p0.rects[0], m = p0.media;
+  // Turned a quarter clockwise: the bottom as shown is the right edge of
+  // the page as stored, and the right as shown is its top.
+  expect(m[2] - x1).toBeCloseTo(24, 0);
+  expect(m[3] - y1).toBeCloseTo(24, 0);
+  expect(x1 - x0).toBeCloseTo(14, 0); // a line of text, drawn across
+});
+
+test('a watermark covers every page, and its picture is stored once', async ({ page }) => {
+  await load(page);
+  await page.check('#wmOn');
+  await expect(page.locator('#wmText')).toBeFocused();
+  await page.keyboard.type('Copy for the bank only');
+  await expect(page.locator('.pm-watermark')).toHaveCount(1);
+  const bytes = await download(page);
+  const pages = signatures(bytes);
+  for (const { rects: [r], media: m } of pages) r.forEach((v, k) => expect(v).toBeCloseTo(m[k], 0));
+  const doc = new mupdf.PDFDocument(bytes), refs = new Set();
+  for (let i = 0; i < doc.countPages(); i++) doc.findPage(i).get('Resources').get('XObject').forEach((v, k) => { if (k.startsWith('PaSig')) refs.add(v.asIndirect()); });
+  expect(refs.size).toBe(1);
+});
+
+test('page numbers speak the chosen language', async ({ page }) => {
+  await load(page, PDF, '/?lang=he');
+  await expect(page.locator('#numStyle option[value="page"]')).toHaveText('עמוד 1 מתוך 6');
+  await expect(page.locator('#numWhere option[value="bc"]')).toHaveText('למטה באמצע');
+});
+
+test('a skipped page shows no numbers or watermark', async ({ page }) => {
+  await load(page);
+  await page.check('#numOn');
+  await expect(page.locator('.page-mark')).toHaveCount(1);
+  await page.uncheck('#includePage');
+  await expect(page.locator('.page-mark')).toHaveCount(0);
+});
