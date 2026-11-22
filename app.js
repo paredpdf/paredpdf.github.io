@@ -532,9 +532,53 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === '0') { e.preventDefault(); setZoom(1); }
 });
 
+// To the next level up or down (a pinch can leave the zoom between them).
 function stepZoom(d, at) {
-  const k = ZOOMS.indexOf(zoom) + d;
-  if (k >= 0 && k < ZOOMS.length) setZoom(ZOOMS[k], at);
+  const next = d > 0 ? ZOOMS.find((z) => z > zoom + 0.01) : ZOOMS.findLast((z) => z < zoom - 0.01);
+  if (next) setZoom(next, at);
+}
+
+// Pinch with two fingers on the page. Touch events, not pointer events:
+// once the browser starts panning a zoomed page it stops sending pointer
+// events, but touches keep coming. A drag the first finger started (the
+// crop, or an item) is undone when the second finger lands.
+let pinch = null, pinchFrame = 0;
+const spread = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+const middle = (t) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
+el.stageWrap.addEventListener('touchstart', (e) => {
+  if (!state || e.touches.length !== 2) return;
+  cancelDrags();
+  pinch = { d: spread(e.touches), zoom };
+}, { passive: true });
+el.stageWrap.addEventListener('touchmove', (e) => {
+  if (!pinch || e.touches.length !== 2) return;
+  if (e.cancelable) e.preventDefault(); // not the browser's own zoom or scroll
+  const z = Math.min(ZOOMS[ZOOMS.length - 1], Math.max(1, (pinch.zoom * spread(e.touches)) / pinch.d));
+  const at = middle(e.touches);
+  cancelAnimationFrame(pinchFrame);
+  pinchFrame = requestAnimationFrame(() => setZoom(z, at));
+}, { passive: false });
+const endPinch = (e) => {
+  if (!pinch || e.touches.length >= 2) return;
+  pinch = null;
+  if (zoom < 1.08) requestAnimationFrame(() => setZoom(1)); // close to fitting: fit
+};
+el.stageWrap.addEventListener('touchend', endPinch);
+el.stageWrap.addEventListener('touchcancel', endPinch);
+
+function cancelDrags() {
+  if (signDrag) {
+    signDrag.item.box = signDrag.start;
+    setSigRect(signDrag.node);
+    renderThumbSigns(signDrag.item.page);
+    signDrag = null;
+  }
+  if (drag) {
+    Object.assign(drag.c, { box: drag.start, mode: drag.mode, orient: drag.orient });
+    const { c } = drag;
+    drag = null;
+    boxChanged(c);
+  }
 }
 
 // Keep what you're looking at in view: the point under the mouse, else
@@ -557,8 +601,8 @@ function setZoom(z, at) {
 
 function showZoom() {
   el.zoomFit.textContent = ltr(`${Math.round(zoom * 100)}%`);
-  el.zoomOut.disabled = zoom <= ZOOMS[0];
-  el.zoomIn.disabled = zoom >= ZOOMS[ZOOMS.length - 1];
+  el.zoomOut.disabled = zoom <= ZOOMS[0] + 0.01;
+  el.zoomIn.disabled = zoom >= ZOOMS[ZOOMS.length - 1] - 0.01;
 }
 
 /* ---------- dragging the crop box ---------- */
@@ -566,12 +610,12 @@ function showZoom() {
 let drag = null, dragFrame = 0;
 el.crop.addEventListener('pointerdown', (e) => {
   const c = curCrop();
-  if (!c) return;
+  if (!c || drag) return; // a second finger is a pinch, not another drag
   // Zoomed in, a finger inside the crop pans the page; its handles still drag.
   if (zoom > 1 && e.pointerType === 'touch' && !e.target.dataset.h) return;
   e.preventDefault();
   el.crop.setPointerCapture(e.pointerId);
-  drag = { c, h: e.target.dataset.h || 'move', sx: e.clientX, sy: e.clientY, start: { ...c.box } };
+  drag = { c, h: e.target.dataset.h || 'move', sx: e.clientX, sy: e.clientY, start: { ...c.box }, mode: c.mode, orient: c.orient };
 });
 el.crop.addEventListener('pointermove', (e) => {
   if (!drag) return;
@@ -1641,7 +1685,7 @@ function clampSign(item, b) {
 let signDrag = null, thumbSignFrame = 0;
 el.stage.addEventListener('pointerdown', (e) => {
   let node = e.target.closest('.sig');
-  if (!node || e.button > 0) return;
+  if (!node || e.button > 0 || signDrag) return; // a second finger is a pinch
   e.stopPropagation();
   if (e.target.closest('.sig-del')) return;
   // Finish typing first: an empty text goes, and the page's items with it

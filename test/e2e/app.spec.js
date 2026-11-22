@@ -1722,3 +1722,57 @@ test('+, - and 0 zoom from the keyboard', async ({ page }) => {
   await page.keyboard.press('0');
   await expect(page.locator('#zoomFit')).toHaveText('100%');
 });
+
+// Two fingers, through Chromium's DevTools protocol (Playwright has no pinch).
+async function pinchOut(page, { from = 40, to = 160, firstAlone = 0 } = {}) {
+  const cdp = await page.context().newCDPSession(page);
+  const b = await page.locator('#stageBox').boundingBox();
+  const cx = b.x + b.width / 2, cy = b.y + b.height / 2;
+  const touch = (type, points) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map(([x, y], id) => ({ x, y, id })) });
+  if (firstAlone) {
+    // One finger lands and drags first, then the second joins.
+    await touch('touchStart', [[cx - from / 2, cy]]);
+    await touch('touchMove', [[cx - from / 2 + firstAlone, cy]]);
+  }
+  await touch('touchStart', [[cx - from / 2, cy], [cx + from / 2, cy]]);
+  for (let k = 1; k <= 8; k++) {
+    const d = from + ((to - from) * k) / 8;
+    await touch('touchMove', [[cx - d / 2, cy], [cx + d / 2, cy]]);
+    await page.waitForTimeout(20);
+  }
+  await touch('touchEnd', []);
+}
+
+test('pinch zooms the page on a touch screen', async ({ page, browserName, isMobile }) => {
+  test.skip(browserName !== 'chromium' || !isMobile, 'touch, through Chromium');
+  await load(page);
+  const crop = await page.locator('#rSize').textContent();
+  await page.locator('#stageBox').scrollIntoViewIfNeeded();
+  await pinchOut(page);
+  await expect.poll(async () => parseInt(await page.locator('#zoomFit').textContent(), 10)).toBeGreaterThan(250);
+  await expect(page.locator('#rSize')).toHaveText(crop); // the crop didn't move
+  // Pinching back in fits the page again.
+  await pinchOut(page, { from: 200, to: 40 });
+  await expect(page.locator('#zoomFit')).toHaveText('100%');
+});
+
+test('a drag the first finger started is undone when a pinch begins', async ({ page, browserName, isMobile }) => {
+  test.skip(browserName !== 'chromium' || !isMobile, 'touch, through Chromium');
+  await load(page);
+  await page.locator('#stageBox').scrollIntoViewIfNeeded();
+  const where = () => page.locator('#crop').evaluate((c) => c.style.left);
+  const before = await where();
+  // One finger alone does drag the crop...
+  const cdp = await page.context().newCDPSession(page);
+  const b = await page.locator('#stageBox').boundingBox();
+  const at = (x) => [{ x: b.x + b.width / 2 + x, y: b.y + b.height / 2, id: 0 }];
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: at(0) });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: at(-30) });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect.poll(where).not.toBe(before);
+  const moved = await where();
+  // ...but when a second finger joins, its drag is undone and it's a pinch.
+  await pinchOut(page, { firstAlone: 30 });
+  await expect.poll(async () => parseInt(await page.locator('#zoomFit').textContent(), 10)).toBeGreaterThan(150);
+  expect(await where()).toBe(moved);
+});
