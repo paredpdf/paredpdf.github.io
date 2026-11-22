@@ -176,6 +176,10 @@ const STRINGS = {
     'err.write': ({ msg }) => `Couldn't write the PDF: ${msg}`,
     'err.engine': 'The PDF engine stopped unexpectedly. Try again, or export fewer pages at a time.',
 
+    'zoom.aria': 'Zoom',
+    'zoom.in': 'Zoom in',
+    'zoom.out': 'Zoom out',
+    'zoom.fit': 'Fit the page',
     'marks.title': 'On every page',
     'marks.numbers': 'Page numbers',
     'marks.where': 'Where',
@@ -416,6 +420,10 @@ const STRINGS = {
     'err.write': ({ msg }) => `לא הצלחתי לכתוב את קובץ ה־PDF: ${msg}`,
     'err.engine': 'מנוע ה־PDF נעצר באופן לא צפוי. נסו שוב, או ייצאו פחות עמודים בכל פעם.',
 
+    'zoom.aria': 'זום',
+    'zoom.in': 'הגדלה',
+    'zoom.out': 'הקטנה',
+    'zoom.fit': 'התאמה לגודל המסך',
     'marks.title': 'בכל עמוד',
     'marks.numbers': 'מספרי עמודים',
     'marks.where': 'מיקום',
@@ -656,6 +664,10 @@ const STRINGS = {
     'err.write': ({ msg }) => `تعذّرت كتابة ملف PDF: ${msg}`,
     'err.engine': 'توقّف محرك PDF بشكل غير متوقع. حاول مرة أخرى، أو صدّر عددًا أقل من الصفحات في كل مرة.',
 
+    'zoom.aria': 'التكبير',
+    'zoom.in': 'تكبير',
+    'zoom.out': 'تصغير',
+    'zoom.fit': 'ملاءمة الصفحة',
     'marks.title': 'في كل صفحة',
     'marks.numbers': 'أرقام الصفحات',
     'marks.where': 'الموضع',
@@ -896,6 +908,10 @@ const STRINGS = {
     'err.write': ({ msg }) => `No se pudo escribir el PDF: ${msg}`,
     'err.engine': 'El motor de PDF se detuvo de forma inesperada. Vuelve a intentarlo o exporta menos páginas cada vez.',
 
+    'zoom.aria': 'Zoom',
+    'zoom.in': 'Acercar',
+    'zoom.out': 'Alejar',
+    'zoom.fit': 'Ajustar la página',
     'marks.title': 'En cada página',
     'marks.numbers': 'Números de página',
     'marks.where': 'Dónde',

@@ -196,6 +196,14 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 .tbar .trot { margin-inline-start: auto; }
 .tdrag, .trot { font: inherit; font-size: 14px; line-height: 1; padding: 3px 4px; border: 0; border-radius: 4px; background: transparent; color: var(--ink-2); cursor: pointer; }
 .tdrag { cursor: grab; touch-action: none; }
+/* Zoomed in, the page scrolls inside its frame. A finger on the page pans
+   it; the crop's handles and placed items still drag. */
+.stage-wrap.zoomed { display: block; overflow: auto; overscroll-behavior: contain; }
+.stage-wrap.zoomed .stage-box { margin: 0 auto; }
+.stage-wrap.zoomed .stage, .stage-wrap.zoomed .crop { touch-action: pan-x pan-y; }
+.h { touch-action: none; }
+.zoom { display: inline-flex; gap: 4px; align-items: center; }
+.zoom-fit { min-width: 58px; padding: 6px 8px; font-size: 13px; font-variant-numeric: tabular-nums; }
 .tdrag:hover, .tdrag:focus-visible, .trot:hover, .trot:focus-visible { background: var(--surface-2); color: var(--ink); }
 .trot:focus-visible { outline: 2px solid var(--accent); }
 .tclip { transition: transform .15s; }

@@ -1670,3 +1670,55 @@ test('a skipped page shows no numbers or watermark', async ({ page }) => {
   await page.uncheck('#includePage');
   await expect(page.locator('.page-mark')).toHaveCount(0);
 });
+
+/* ---------- zoom ---------- */
+
+test('zooms the view in and out, sharper, without changing the crop', async ({ page }) => {
+  await load(page);
+  const size = () => page.locator('#stage').evaluate((s) => [s.offsetWidth, s.offsetHeight]);
+  const crop = await page.locator('#rSize').textContent();
+  const [w0] = await size();
+  const px0 = await page.locator('#canvas').evaluate((c) => c.width);
+  await expect(page.locator('#zoomOut')).toBeDisabled();
+  await page.click('#zoomIn');
+  await expect(page.locator('#zoomFit')).toHaveText('150%');
+  await page.click('#zoomIn');
+  await expect(page.locator('#zoomFit')).toHaveText('200%');
+  expect((await size())[0]).toBeCloseTo(w0 * 2, -1);
+  await expect.poll(() => page.locator('#canvas').evaluate((c) => c.width)).toBeGreaterThan(px0 * 1.5);
+  // The page scrolls inside its frame, which keeps its size.
+  expect(await page.locator('#stageWrap').evaluate((w) => w.scrollWidth > w.clientWidth || w.scrollHeight > w.clientHeight)).toBe(true);
+  await expect(page.locator('#rSize')).toHaveText(crop);
+  await page.click('#zoomFit');
+  await expect(page.locator('#zoomFit')).toHaveText('100%');
+  expect((await size())[0]).toBe(w0);
+});
+
+test('zooming in keeps the selected mark in view, and it exports the same', async ({ page }) => {
+  await load(page);
+  await page.click('#addCheck');
+  await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('Shift+ArrowDown');
+  for (let k = 0; k < 4; k++) await page.click('#zoomIn');
+  await expect(page.locator('#zoomFit')).toHaveText('400%');
+  const wrap = await page.locator('#stageWrap').boundingBox(), mark = await page.locator('.sig').boundingBox();
+  expect(mark.x).toBeGreaterThan(wrap.x);
+  expect(mark.x + mark.width).toBeLessThan(wrap.x + wrap.width);
+  expect(mark.y).toBeGreaterThan(wrap.y);
+  expect(mark.y + mark.height).toBeLessThan(wrap.y + wrap.height);
+  const [p0] = signatures(await download(page));
+  expect(p0.rects[0][2] - p0.rects[0][0]).toBeCloseTo(14, 0); // the same size on the page
+});
+
+test('+, - and 0 zoom from the keyboard', async ({ page }) => {
+  await load(page);
+  await page.locator('#pageLabel').click();
+  await page.keyboard.press('+');
+  await page.keyboard.press('+');
+  await expect(page.locator('#zoomFit')).toHaveText('200%');
+  await page.keyboard.press('-');
+  await expect(page.locator('#zoomFit')).toHaveText('150%');
+  await page.keyboard.press('0');
+  await expect(page.locator('#zoomFit')).toHaveText('100%');
+});

@@ -38,7 +38,7 @@ const el = Object.fromEntries([
   'sigName', 'fontChips',
   'sigErr', 'sigClear', 'sigCancel', 'sigUse', 'sigRemember', 'savedSigs', 'savedList', 'signDlgTitle',
   'addInitials', 'addDate', 'copyAll', 'copyDone', 'typeHint', 'addText', 'addCheck', 'addCross', 'formHint',
-  'marksCard', 'numOn', 'numOpts', 'numWhere', 'numStyle', 'wmOn', 'wmOpts', 'wmText',
+  'zoomIn', 'zoomOut', 'zoomFit', 'marksCard', 'numOn', 'numOpts', 'numWhere', 'numStyle', 'wmOn', 'wmOpts', 'wmText',
 ].map((id) => [id, $(id)]));
 
 let state = null;
@@ -71,6 +71,7 @@ function resetAll() {
   thumbQueue.length = 0;
   for (const d of state?.files ?? []) d.pdf.destroy();
   state = null;
+  zoom = 1;
   steps = [];
   stepAt = -1;
   cancelEstimate();
@@ -441,7 +442,11 @@ async function showPage(n) {
   // Show the page turned as it will be exported: fit the turned shape, and
   // size the box around the stage to it.
   const deg = state.rot[n] || 0, side = deg % 180 !== 0;
-  const fit = Math.min(availW / (side ? g.H : g.W), availH / (side ? g.W : g.H));
+  // Zoomed in, the frame keeps its size and the page scrolls inside it.
+  wrap.classList.toggle('zoomed', zoom > 1);
+  wrap.style.height = zoom > 1 ? `${availH + pad}px` : '';
+  showZoom();
+  const fit = zoom * Math.min(availW / (side ? g.H : g.W), availH / (side ? g.W : g.H));
   const cssW = Math.floor(g.W * fit), cssH = Math.floor(g.H * fit);
   el.stage.style.width = `${cssW}px`;
   el.stage.style.height = `${cssH}px`;
@@ -457,7 +462,9 @@ async function showPage(n) {
   renderTask?.cancel();
   const page = await getPage(n);
   if (my !== session || state.page !== n) return;
-  const dpr = window.devicePixelRatio || 1;
+  // Sharp at any zoom, but at most about 16 million pixels: phones (and
+  // Safari) can't draw a canvas larger than that.
+  const dpr = Math.min(window.devicePixelRatio || 1, Math.sqrt(16e6 / (g.W * g.H)) / fit);
   const vp = page.getViewport({ scale: fit * dpr });
   // Render offscreen, then swap, so the preview doesn't flash white.
   const off = document.createElement('canvas');
@@ -502,12 +509,66 @@ function screenToSheet(dx, dy) {
   return [(dx * c + dy * s) / el.stage.offsetWidth, (-dx * s + dy * c) / el.stage.offsetHeight];
 }
 
+/* ---------- zoom ---------- */
+
+// Zoom only changes the view, for placing text and marks precisely; 1 fits
+// the page in its frame.
+const ZOOMS = [1, 1.5, 2, 3, 4];
+let zoom = 1;
+
+el.zoomIn.addEventListener('click', () => stepZoom(1));
+el.zoomOut.addEventListener('click', () => stepZoom(-1));
+el.zoomFit.addEventListener('click', () => setZoom(1));
+el.stageWrap.addEventListener('wheel', (e) => {
+  if (!state || !(e.ctrlKey || e.metaKey)) return;
+  e.preventDefault(); // the page's zoom, not the browser's
+  stepZoom(e.deltaY < 0 ? 1 : -1, { x: e.clientX, y: e.clientY });
+}, { passive: false });
+document.addEventListener('keydown', (e) => {
+  if (!state || el.work.hidden || el.signDlg.open || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.target.closest('input, textarea, select, [contenteditable]')) return;
+  if (e.key === '+' || e.key === '=') { e.preventDefault(); stepZoom(1); }
+  else if (e.key === '-' || e.key === '_') { e.preventDefault(); stepZoom(-1); }
+  else if (e.key === '0') { e.preventDefault(); setZoom(1); }
+});
+
+function stepZoom(d, at) {
+  const k = ZOOMS.indexOf(zoom) + d;
+  if (k >= 0 && k < ZOOMS.length) setZoom(ZOOMS[k], at);
+}
+
+// Keep what you're looking at in view: the point under the mouse, else
+// the item last selected on this page, else the middle of the frame.
+function setZoom(z, at) {
+  if (!state || z === zoom) return;
+  const wrap = el.stageWrap, wr = wrap.getBoundingClientRect(), box = el.stageBox.getBoundingClientRect();
+  const item = activeSign?.page === state.page ? signNode(activeSign)?.getBoundingClientRect() : null;
+  const cx = at?.x ?? (item ? item.left + item.width / 2 : wr.left + wr.width / 2);
+  const cy = at?.y ?? (item ? item.top + item.height / 2 : wr.top + wr.height / 2);
+  const fx = (cx - box.left) / box.width, fy = (cy - box.top) / box.height;
+  zoom = z;
+  showPage(state.page); // lays out at once; the sharper page follows
+  const nb = el.stageBox.getBoundingClientRect();
+  // The same point of the page under the mouse, or in the middle.
+  const [tx, ty] = at ? [at.x, at.y] : [wr.left + wr.width / 2, wr.top + wr.height / 2];
+  wrap.scrollLeft += nb.left + fx * nb.width - tx;
+  wrap.scrollTop += nb.top + fy * nb.height - ty;
+}
+
+function showZoom() {
+  el.zoomFit.textContent = ltr(`${Math.round(zoom * 100)}%`);
+  el.zoomOut.disabled = zoom <= ZOOMS[0];
+  el.zoomIn.disabled = zoom >= ZOOMS[ZOOMS.length - 1];
+}
+
 /* ---------- dragging the crop box ---------- */
 
 let drag = null, dragFrame = 0;
 el.crop.addEventListener('pointerdown', (e) => {
   const c = curCrop();
   if (!c) return;
+  // Zoomed in, a finger inside the crop pans the page; its handles still drag.
+  if (zoom > 1 && e.pointerType === 'touch' && !e.target.dataset.h) return;
   e.preventDefault();
   el.crop.setPointerCapture(e.pointerId);
   drag = { c, h: e.target.dataset.h || 'move', sx: e.clientX, sy: e.clientY, start: { ...c.box } };
