@@ -1547,5 +1547,6 @@ test('an item’s buttons sit outside it, so a small one can still be grabbed', 
   await expect(mark).toBeFocused();
   const b = await mark.boundingBox();
   const hit = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.className, [b.x + b.width / 2, b.y + b.height / 2]);
-  expect(hit).toBe('sig');
+  const del = await mark.locator('.sig-del').boundingBox();
+  expect(hit, `item ${JSON.stringify(b)}, × ${JSON.stringify(del)}`).toBe('sig');
 });
