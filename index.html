@@ -35,7 +35,7 @@
 
   <main>
     <section id="drop" class="drop" tabindex="0">
-      <input id="file" type="file" accept="application/pdf,.pdf" multiple hidden>
+      <input id="file" type="file" accept="application/pdf,.pdf,image/*" multiple hidden>
       <div class="drop-inner">
         <svg viewBox="0 0 120 80" width="150" aria-hidden="true" class="drop-art">
           <rect x="4" y="8" width="112" height="64" rx="4" class="sheet"/>
@@ -43,10 +43,10 @@
           <path d="M30 40h10M90 40h-10" class="arrow"/>
           <path d="M36 36l4 4-4 4M84 36l-4 4 4 4" class="arrow"/>
         </svg>
-        <h1 data-i18n="drop.title">Drop a PDF here</h1>
+        <h1 data-i18n="drop.title">Drop a PDF or photos here</h1>
         <p data-i18n="drop.text">Pared finds the real page inside a sheet that was exported at the wrong size (a portrait slide on a landscape page, for example), crops to it, and can shrink the file.</p>
-        <button class="btn primary" id="pick" type="button" data-i18n="drop.pick">Choose a PDF</button>
-        <p class="drop-more" data-i18n="drop.multi">Choose several to merge them, or to fix them all the same way.</p>
+        <button class="btn primary" id="pick" type="button" data-i18n="drop.pick">Choose a PDF or photos</button>
+        <p class="drop-more" data-i18n="drop.multi">Choose several to merge them, or to fix them all the same way. Photos of a document become its pages.</p>
       </div>
     </section>
 
@@ -55,7 +55,7 @@
       <div class="about-grid">
         <div><h3 data-i18n="about.privateTitle">Private</h3><p data-i18n="about.private">Your PDF never leaves this device. Pared runs entirely in your browser, and keeps working offline once it has loaded.</p></div>
         <div><h3 data-i18n="about.findTitle">Finds the real page</h3><p data-i18n="about.find">It reads the outline the PDF marks for the page, or looks at where the content sits, then crops every page to it.</p></div>
-        <div><h3 data-i18n="about.moreTitle">And more</h3><p data-i18n="about.more">Keep, reorder and rotate pages, shrink photos to a sensible resolution, and add a signature.</p></div>
+        <div><h3 data-i18n="about.moreTitle">And more</h3><p data-i18n="about.more">Keep, reorder and rotate pages, shrink photos to a sensible resolution, turn photos into a PDF, add page numbers or a watermark, fill in forms, and sign.</p></div>
         <div><h3 data-i18n="about.openTitle">Open source</h3><p><span data-i18n="about.open">Free to use and to change, under the AGPL.</span> <a href="https://github.com/paredpdf/paredpdf.github.io" data-i18n="about.code">See the code</a></p></div>
       </div>
     </section>

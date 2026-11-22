@@ -227,7 +227,7 @@ test('opens a PDF shared from another app', async ({ page }) => {
   await expect(page.locator('#detectText')).toContainText('9:16 portrait');
   expect(new URL(page.url()).search).toBe('');
   // The parked file is removed once opened.
-  expect(await page.evaluate(async () => !!(await (await caches.open('pared-share')).match('shared.pdf')))).toBe(false);
+  expect(await page.evaluate(async () => !!(await (await caches.open('pared-share')).match('shared-0')))).toBe(false);
 });
 
 test('frees thumbnails scrolled far away and redraws them on return', async ({ page }) => {
@@ -369,7 +369,7 @@ test('shows the interface in Hebrew, right to left', async ({ page }) => {
   await page.goto('/?lang=he');
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
   await expect(page.locator('html')).toHaveAttribute('lang', 'he');
-  await expect(page.locator('#drop h1')).toHaveText('גררו לכאן קובץ PDF');
+  await expect(page.locator('#drop h1')).toHaveText('גררו לכאן קובץ PDF או תמונות');
   await expect(page.locator('#lang')).toHaveValue('he');
   await page.setInputFiles('#file', PDF);
   await expect(page.locator('#exportCard')).toBeVisible({ timeout: 60_000 });
@@ -399,11 +399,11 @@ test('switches language with a loaded file, and remembers the choice', async ({ 
   await expect(page.locator('#estimate')).toContainText('גודל משוער', { timeout: 30_000 });
 
   await page.reload();
-  await expect(page.locator('#drop h1')).toHaveText('גררו לכאן קובץ PDF');
+  await expect(page.locator('#drop h1')).toHaveText('גררו לכאן קובץ PDF או תמונות');
   await expect(page.locator('#lang')).toHaveValue('he');
   await page.selectOption('#lang', 'en');
   await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
-  await expect(page.locator('#drop h1')).toHaveText('Drop a PDF here');
+  await expect(page.locator('#drop h1')).toHaveText('Drop a PDF or photos here');
 });
 
 test('in Hebrew, the left arrow moves pages forward', async ({ page }) => {
@@ -507,7 +507,7 @@ test('picks the language from the browser', async ({ browser }) => {
   const context = await browser.newContext({ locale: 'es-MX' });
   const page = await context.newPage();
   await page.goto('/');
-  await expect(page.locator('#drop h1')).toHaveText('Suelta un PDF aquí');
+  await expect(page.locator('#drop h1')).toHaveText('Suelta un PDF o fotos aquí');
   await expect(page.locator('#lang')).toHaveValue('es');
   await context.close();
 });
@@ -1549,4 +1549,61 @@ test('an item’s buttons sit outside it, so a small one can still be grabbed', 
   const hit = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.className, [b.x + b.width / 2, b.y + b.height / 2]);
   const del = await mark.locator('.sig-del').boundingBox();
   expect(hit, `item ${JSON.stringify(b)}, × ${JSON.stringify(del)}`).toBe('sig');
+});
+
+/* ---------- photos to PDF ---------- */
+
+const TURNED_PHOTO = path.join(FIXTURES, 'turned-photo.jpg'), SCAN = path.join(FIXTURES, 'scan.png');
+const boxes = (bytes) => { const doc = new mupdf.PDFDocument(bytes); return Array.from({ length: doc.countPages() }, (_, i) => { const b = doc.findPage(i).get('MediaBox'); return [b.get(2).asNumber(), b.get(3).asNumber()]; }); };
+
+test('photos become the pages of one PDF, upright, without their location', async ({ page }) => {
+  await page.goto('/');
+  await page.setInputFiles('#file', [TURNED_PHOTO, SCAN]);
+  await expect(page.locator('#exportCard')).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('#fname')).toHaveText('turned-photo.pdf');
+  await expect(page.locator('#pageLabel')).toHaveText('Page 1 of 2');
+  const bytes = await download(page);
+  // Stored landscape, but the camera said to turn it: the page is portrait.
+  expect(boxes(bytes)).toEqual([[631.5, 842], [842, 421]]);
+  const text = new TextDecoder('latin1').decode(bytes);
+  expect(text).not.toContain('Exif');
+  expect(text).not.toContain('iPhone');
+});
+
+test('photos and PDFs open together, in the order chosen', async ({ page }) => {
+  await page.goto('/');
+  await page.setInputFiles('#file', [PDF, SCAN]);
+  await expect(page.locator('#exportCard')).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('#fname')).toHaveText('2 files');
+  await expect(page.locator('#pageLabel')).toHaveText('Page 1 of 7');
+  await page.selectOption('#outMode', 'one');
+  const sizes = boxes(await download(page));
+  expect(sizes).toHaveLength(7);
+  expect(sizes[6]).toEqual([842, 421]);
+});
+
+test('an image the browser can’t read says which one', async ({ page }) => {
+  await page.goto('/');
+  await page.setInputFiles('#file', { name: 'broken.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('not a picture') });
+  await expect(page.locator('#error')).toHaveText('Couldn’t read the image broken.jpg. Try a JPEG or PNG.');
+});
+
+test('several photos shared from another app open as one PDF', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+  const status = await page.evaluate(async () => {
+    const form = new FormData();
+    for (const name of ['turned-photo.jpg', 'scan.png']) {
+      const blob = await (await fetch(`test/e2e/.fixtures/${name}`)).blob();
+      form.append('pdf', new File([blob], name, { type: blob.type || (name.endsWith('.png') ? 'image/png' : 'image/jpeg') }));
+    }
+    const res = await fetch('share', { method: 'POST', body: form, redirect: 'manual' });
+    return res.type === 'opaqueredirect' ? 'redirect' : res.status;
+  });
+  expect(status).toBe('redirect');
+  await page.goto('/?shared=1');
+  await expect(page.locator('#fname')).toHaveText('turned-photo.pdf');
+  await expect(page.locator('#pageLabel')).toHaveText('Page 1 of 2');
 });

@@ -7,6 +7,7 @@ import { parseRange, formatRange } from './pages.js';
 import { isLargeForDevice, isMemoryError } from './limits.js';
 import { t, ltr, isRtl, lang, locale, setLang, pickLang } from './i18n.js';
 import { makeZip } from './zip.js';
+import { imagesToPdfs, isImageFile, isPdfFile } from './images.js';
 import { INKS, fontsFor, createPad, imageToSignature, typedSignature, loadFont, fontCss, signaturePng, signaturePreview,
   textItem, markItem, isRtlText, TEXT_FONT, TEXT_LINE, TEXT_PAD, fieldPng } from './sign.js';
 
@@ -55,8 +56,8 @@ for (const t of ['dragleave', 'drop']) {
   document.addEventListener(t, (e) => { e.preventDefault(); if (t === 'drop' || e.target === el.drop) el.drop.classList.remove('over'); });
 }
 document.addEventListener('drop', (e) => {
-  const pdfs = [...(e.dataTransfer?.files || [])].filter((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
-  if (pdfs.length) open(pdfs);
+  const files = [...(e.dataTransfer?.files || [])].filter((f) => isPdfFile(f) || isImageFile(f));
+  if (files.length) open(files);
 });
 // Back to the start is a good moment to switch to a waiting new version.
 el.reset.addEventListener('click', () => (waitingWorker ? applyUpdate() : resetAll()));
@@ -82,6 +83,7 @@ function resetAll() {
 }
 
 // Open one or more PDFs as one working document. passwords[k] is for files[k].
+// Photos and other images among them become PDF pages first.
 async function open(files, passwords = []) {
   files = Array.isArray(files) ? files : [files];
   resetAll();
@@ -91,13 +93,22 @@ async function open(files, passwords = []) {
   el.work.hidden = false;
   el.reset.hidden = false;
   for (const k of ['detectCard', 'boxCard', 'signCard', 'exportCard', 'error', 'saveProgress', 'pwCard']) el[k].hidden = true;
-  const size = files.reduce((t, f) => t + f.size, 0);
-  el.fname.textContent = files.length === 1 ? files[0].name : t('file.many', { n: files.length });
-  el.fname.title = files.map((f) => f.name).join('\n');
-  el.fmeta.textContent = t('file.reading', { size: fmtBytes(size) });
+  const named = () => {
+    el.fname.textContent = files.length === 1 ? files[0].name : t('file.many', { n: files.length });
+    el.fname.title = files.map((f) => f.name).join('\n');
+  };
+  named();
   el.saveText.textContent = '';
 
+  let size = 0;
   try {
+    if (files.some(isImageFile)) {
+      files = await imagesToPdfs(files, (done, total) => { if (my === session) el.fmeta.textContent = t('file.photos', { done, total }); });
+      if (my !== session) return;
+      named();
+    }
+    size = files.reduce((n, f) => n + f.size, 0);
+    el.fmeta.textContent = t('file.reading', { size: fmtBytes(size) });
     // pdf.js takes ownership of each buffer (it moves to its worker). The
     // export re-reads the files instead of keeping second copies in memory.
     const docs = [];
@@ -150,7 +161,7 @@ async function open(files, passwords = []) {
   } catch (err) {
     if (my !== session) return;
     console.error(err);
-    showError(t('err.read', { msg: err?.message || err }));
+    showError(err?.code === 'image' ? t('err.image', { name: err.name }) : t('err.read', { msg: err?.message || err }));
   }
 }
 
@@ -2148,12 +2159,16 @@ async function openShared() {
   if (!new URLSearchParams(location.search).has('shared') || !('caches' in window)) return;
   history.replaceState(null, '', location.pathname);
   const cache = await caches.open('pared-share');
-  const res = await cache.match('shared.pdf');
-  if (!res) return;
-  const name = decodeURIComponent(res.headers.get('x-filename') || 'shared.pdf');
-  const blob = await res.blob();
-  await cache.delete('shared.pdf');
-  open(new File([blob], name, { type: 'application/pdf' }));
+  // One or more files (several photos can be shared at once), in order.
+  const files = [];
+  for (let k = 0; ; k++) {
+    const res = await cache.match(`shared-${k}`);
+    if (!res) break;
+    const name = decodeURIComponent(res.headers.get('x-filename') || 'shared.pdf');
+    files.push(new File([await res.blob()], name, { type: res.headers.get('content-type') || 'application/pdf' }));
+    await cache.delete(`shared-${k}`);
+  }
+  if (files.length) open(files);
 }
 openShared();
 

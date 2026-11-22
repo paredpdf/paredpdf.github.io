@@ -21,7 +21,7 @@ const NETWORK_TIMEOUT_MS = 4000;
 const STAMPED = VERSION !== 'dev';
 
 const APP_FILES = [
-  './', 'index.html', 'style.css', 'app.js', 'detect.js', 'pages.js', 'limits.js', 'i18n.js', 'sign.js', 'zip.js', 'pdf-core.js', 'export-worker.js',
+  './', 'index.html', 'style.css', 'app.js', 'detect.js', 'pages.js', 'limits.js', 'i18n.js', 'sign.js', 'zip.js', 'images.js', 'pdf-core.js', 'export-worker.js',
   'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 const VENDOR_FILES = [
@@ -75,15 +75,17 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(path.startsWith('vendor/') ? cacheFirst(req) : STAMPED ? fromThisVersion(req) : networkFirst(req));
 });
 
-// A PDF shared to the installed app (Web Share Target). Park it in a cache
-// and redirect to the app, which picks it up and removes it.
+// PDFs or photos shared to the installed app (Web Share Target). Park them
+// in a cache, in order, and redirect to the app, which picks them up and
+// removes them.
 async function receiveShare(req) {
   const form = await req.formData();
-  const file = form.getAll('pdf').find((f) => f instanceof File);
-  if (file) {
-    const cache = await caches.open(SHARE_CACHE);
-    await cache.put('shared.pdf', new Response(file, {
-      headers: { 'content-type': 'application/pdf', 'x-filename': encodeURIComponent(file.name || 'shared.pdf') },
+  const files = form.getAll('pdf').filter((f) => f instanceof File);
+  const cache = await caches.open(SHARE_CACHE);
+  for (const old of await cache.keys()) await cache.delete(old);
+  for (const [k, file] of files.entries()) {
+    await cache.put(`shared-${k}`, new Response(file, {
+      headers: { 'content-type': file.type || 'application/pdf', 'x-filename': encodeURIComponent(file.name || 'shared.pdf') },
     }));
   }
   return Response.redirect(new URL('./?shared=1', self.registration.scope).href, 303);

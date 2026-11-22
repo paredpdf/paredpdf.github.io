@@ -133,8 +133,8 @@ export function signedPdf(n = 1, { unsigned = 0, nested = false } = {}) {
 // A JPEG photo with real EXIF data: camera, software, date taken and GPS.
 // `le` picks the byte order ("II" or "MM"); cameras use both.
 export function exifJpeg({ make = 'Apple', model = 'iPhone 15 Pro', software = '17.4', taken = '2026:03:12 14:02:11',
-  lat = [32, 4, 48], latRef = 'N', lon = [34, 46, 52], lonRef = 'E', le = true } = {}) {
-  // Tags as [tag, type, value]: type 2 ASCII, 4 LONG, 5 RATIONAL (array of numbers).
+  lat = [32, 4, 48], latRef = 'N', lon = [34, 46, 52], lonRef = 'E', le = true, orientation = 0 } = {}) {
+  // Tags as [tag, type, value]: type 2 ASCII, 3 SHORT, 4 LONG, 5 RATIONAL (array of numbers).
   const build = (ifds) => {
     // Layout: header, then each IFD followed by its out-of-line data.
     const bytes = [];
@@ -152,6 +152,7 @@ export function exifJpeg({ make = 'Apple', model = 'iPhone 15 Pro', software = '
         w16(tag); w16(type);
         let raw;
         if (type === 2) raw = [...new TextEncoder().encode(value), 0];
+        else if (type === 3) raw = le ? [value & 255, value >> 8] : [value >> 8, value & 255];
         else if (type === 4) raw = null;
         else if (type === 5) raw = value.flatMap((x) => { const t = []; const p = (v) => t.push(...(le ? [v & 255, (v >> 8) & 255, (v >> 16) & 255, v >>> 24] : [v >>> 24, (v >> 16) & 255, (v >> 8) & 255, v & 255])); p(Math.round(x * 100)); p(100); return t; });
         w32(type === 5 ? value.length : type === 2 ? raw.length : 1);
@@ -168,7 +169,7 @@ export function exifJpeg({ make = 'Apple', model = 'iPhone 15 Pro', software = '
     return bytes;
   };
   const tiff = build([
-    ['ifd0', [[0x010f, 2, make], [0x0110, 2, model], [0x0131, 2, software], [0x8769, 4, 'exif'], [0x8825, 4, 'gps']]],
+    ['ifd0', [[0x010f, 2, make], [0x0110, 2, model], ...(orientation ? [[0x0112, 3, orientation]] : []), [0x0131, 2, software], [0x8769, 4, 'exif'], [0x8825, 4, 'gps']]],
     ['exif', [[0x9003, 2, taken]]],
     ['gps', [[1, 2, latRef], [2, 5, lat], [3, 2, lonRef], [4, 5, lon]]],
   ]);
