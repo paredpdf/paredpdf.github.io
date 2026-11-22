@@ -1539,3 +1539,13 @@ test('no form hint or fields for a PDF without a form', async ({ page }) => {
   await expect(page.locator('.form-field')).toHaveCount(0);
   await expect(page.locator('#formHint')).toBeHidden();
 });
+
+test('an item’s buttons sit outside it, so a small one can still be grabbed', async ({ page }) => {
+  await load(page);
+  await page.click('#addCheck');
+  const mark = page.locator('.sig');
+  await expect(mark).toBeFocused();
+  const b = await mark.boundingBox();
+  const hit = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.className, [b.x + b.width / 2, b.y + b.height / 2]);
+  expect(hit).toBe('sig');
+});

@@ -219,8 +219,8 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 /* Touch: only the selected one shows its buttons (small text and marks would
    be covered by them), and the others' can't be tapped by accident. */
 @media (pointer: coarse) { .sig:focus-within .sig-del, .sig:focus-within .sig-rs { opacity: 1; } .sig:not(:focus-within) .sig-del, .sig:not(:focus-within) .sig-rs { visibility: hidden; } }
-.sig-del { top: -12px; right: -12px; cursor: pointer; }
-.sig-rs { bottom: -12px; right: -12px; cursor: nwse-resize; }
+.sig-del { top: -20px; right: -20px; cursor: pointer; }
+.sig-rs { bottom: -20px; right: -20px; cursor: nwse-resize; }
 .stage-box.excluded .sig { opacity: .45; }
 
 .dlg { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); padding: 20px; width: min(560px, calc(100vw - 32px)); box-shadow: 0 10px 40px rgba(0,0,0,.25); }

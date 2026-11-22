@@ -1474,8 +1474,9 @@ const RS_CORNER = { 0: 'br', 90: 'tr', 180: 'tl', 270: 'bl' };
 function placeAtCorner(el, corner) {
   // 'auto', not '': clearing would fall back to the stylesheet's own corner.
   Object.assign(el.style, { top: 'auto', bottom: 'auto', left: 'auto', right: 'auto' });
-  el.style[corner[0] === 't' ? 'top' : 'bottom'] = '-12px';
-  el.style[corner[1] === 'l' ? 'left' : 'right'] = '-12px';
+  // Outside the corner, so even a small check mark isn't covered by them.
+  el.style[corner[0] === 't' ? 'top' : 'bottom'] = '-20px';
+  el.style[corner[1] === 'l' ? 'left' : 'right'] = '-20px';
 }
 
 function setSigRect(node) {
