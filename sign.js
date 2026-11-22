@@ -350,6 +350,64 @@ function drawMark(ctx, sig, w, h) {
   ctx.stroke();
 }
 
+/* ---------- the PDF's own form fields ---------- */
+
+// What a form field shows, drawn here because the browser has fonts for
+// every script. w×h are pixels at k pixels per point; size is the field's
+// font size in points (0: fit the field), align its /Q (0 start, 1 centre,
+// 2 end; right-to-left text starts on the right).
+export function fieldCanvas(text, w, h, { k = 1, size = 0, align = 0, multiline = false, color = '#000' } = {}) {
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w));
+  c.height = Math.max(1, Math.round(h));
+  const ctx = c.getContext('2d');
+  const pad = 2 * k, room = c.width - 2 * pad, LH = 1.15;
+  const rtl = isRtlText(text);
+  let px = (size || (multiline ? 11 : Math.min(12, (c.height / k) * 0.66))) * k;
+  const fontAt = (v) => { ctx.font = `${v}px ${TEXT_FONT}`; };
+  fontAt(px);
+  let lines;
+  if (multiline) {
+    for (;;) {
+      lines = wrapLines(ctx, text, room);
+      if (size || lines.length * px * LH <= c.height - 2 * pad || px <= 4 * k) break;
+      fontAt((px *= 0.9));
+    }
+  } else {
+    lines = [text.replace(/\n/g, ' ')];
+    const wide = ctx.measureText(lines[0]).width;
+    if (!size && wide > room) fontAt((px *= room / wide));
+  }
+  ctx.fillStyle = color;
+  ctx.direction = rtl ? 'rtl' : 'ltr';
+  ctx.textBaseline = 'middle';
+  const side = align === 1 ? 'center' : (align === 2) !== rtl ? 'right' : 'left';
+  ctx.textAlign = side;
+  const x = side === 'center' ? c.width / 2 : side === 'right' ? c.width - pad : pad;
+  lines.forEach((line, i) => {
+    ctx.fillText(line, x, multiline ? pad + (i + 0.5) * px * LH : c.height / 2);
+  });
+  return c;
+}
+
+// Words to lines no wider than `room`, keeping the typed line breaks.
+function wrapLines(ctx, text, room) {
+  const out = [];
+  for (const para of text.split('\n')) {
+    let line = '';
+    for (const word of para.split(/(?<=\s)/)) {
+      if (line && ctx.measureText(line + word).width > room) { out.push(line.trimEnd()); line = word.trimStart(); } else line += word;
+    }
+    out.push(line.trimEnd());
+  }
+  return out;
+}
+
+export async function fieldPng(text, w, h, opts) {
+  const blob = await new Promise((resolve) => fieldCanvas(text, w, h, opts).toBlob(resolve, 'image/png'));
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
 /* ---------- rendering ---------- */
 
 const images = new Map(); // data URL -> decoded image

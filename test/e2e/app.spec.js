@@ -1477,3 +1477,65 @@ test('on a touch screen, only the selected item shows its buttons', async ({ pag
   await expect(cross.locator('.sig-del')).toBeVisible();
   await expect(check.locator('.sig-del')).toBeHidden();
 });
+
+/* ---------- the PDF's own form fields ---------- */
+
+const FORM = path.join(FIXTURES, 'form.pdf');
+
+function formValues(bytes, page = 0) {
+  const doc = new mupdf.PDFDocument(bytes);
+  const out = {};
+  for (const w of doc.loadPage(page).getWidgets()) {
+    const name = w.getName();
+    if (w.isRadioButton()) out[name] = [...(out[name] ?? []), w.getObject().get('AS').toString()];
+    else out[name] = w.getValue();
+    if (name === 'name') out.nameLook = w.getObject().get('AP').get('N').readStream().asString();
+  }
+  return out;
+}
+
+test('fills in the PDF’s own form on the page, in any script', async ({ page }) => {
+  await load(page, FORM);
+  await expect(page.locator('#formHint')).toBeVisible();
+  await expect(page.locator('.form-field')).toHaveCount(6);
+  await page.locator('.ff-text').first().fill('שלום Ada');
+  await page.locator('textarea.form-field').fill('1 Main St\nLondon');
+  await page.locator('.ff-check').check();
+  await page.locator('.ff-radio').nth(1).check();
+  await page.locator('.ff-choice').selectOption('Paris');
+  const v = formValues(await download(page));
+  expect(v.name).toBe('שלום Ada');
+  expect(v.nameLook).toMatch(/\/Im0 Do/); // drawn by the browser, which has Hebrew letters
+  expect(v.address).toBe('1 Main St\nLondon');
+  expect(v.agree).toBe('Yes');
+  expect(v.color).toEqual(['/Off', '/blue']);
+  expect(v.city).toBe('Paris');
+});
+
+test('form values follow undo, and come back on the page', async ({ page }) => {
+  await load(page, FORM);
+  const name = page.locator('.ff-text').first();
+  await name.fill('Ada');
+  await expect(page.locator('#undo')).toBeEnabled();
+  await page.locator('.ff-check').check();
+  await page.waitForTimeout(600); // changes settle into a step after 350 ms
+  await page.click('#undo');
+  await expect(page.locator('.ff-check')).not.toBeChecked();
+  await expect(name).toHaveValue('Ada');
+  await page.click('#undo');
+  await expect(name).toHaveValue('');
+  await page.click('#next');
+  await expect(page.locator('.form-field')).toHaveCount(0); // the second page has no fields
+  await page.click('#redo');
+  await page.click('#prev');
+  await expect(page.locator('.ff-text').first()).toHaveValue('Ada');
+  const v = formValues(await download(page));
+  expect(v.name).toBe('Ada');
+  expect(v.agree).toBe('Off');
+});
+
+test('no form hint or fields for a PDF without a form', async ({ page }) => {
+  await load(page);
+  await expect(page.locator('.form-field')).toHaveCount(0);
+  await expect(page.locator('#formHint')).toBeHidden();
+});

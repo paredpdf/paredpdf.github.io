@@ -177,3 +177,73 @@ export function exifJpeg({ make = 'Apple', model = 'iPhone 15 Pro', software = '
   const jpeg = photoPixmap(320, 240, 9).asJPEG(80, false).slice();
   return Uint8Array.from([...jpeg.subarray(0, 2), ...app1, ...jpeg.subarray(2)]);
 }
+
+// A one-page form with a text field, a multi-line text field, a checkbox,
+// a pair of radio buttons and a drop-down list, then a page with no fields.
+export function formPdf() {
+  const doc = new mupdf.PDFDocument(makePdf([{ W: 595, H: 842 }, { W: 595, H: 842 }]));
+  const page = doc.findPage(0);
+  const helv = doc.addObject(doc.newDictionary());
+  helv.put('Type', doc.newName('Font'));
+  helv.put('Subtype', doc.newName('Type1'));
+  helv.put('BaseFont', doc.newName('Helvetica'));
+  const fields = doc.newArray(), annots = doc.newArray();
+  const onOff = (on, w, h) => ({
+    [on]: doc.addStream(`0 0 0 rg 3 3 ${w - 6} ${h - 6} re f`, { Type: 'XObject', Subtype: 'Form', BBox: [0, 0, w, h] }),
+    Off: doc.addStream('', { Type: 'XObject', Subtype: 'Form', BBox: [0, 0, w, h] }),
+  });
+  function widget({ name, ft, rect, ff = 0, parent, set = {} }) {
+    const f = doc.addObject(doc.newDictionary());
+    f.put('Type', doc.newName('Annot'));
+    f.put('Subtype', doc.newName('Widget'));
+    f.put('Rect', rect);
+    f.put('P', page);
+    f.put('F', 4);
+    if (parent) f.put('Parent', parent);
+    else {
+      f.put('FT', doc.newName(ft));
+      f.put('T', doc.newString(name));
+      f.put('DA', doc.newString('/Helv 11 Tf 0 g'));
+      if (ff) f.put('Ff', ff);
+      fields.push(f);
+    }
+    for (const [k, v] of Object.entries(set)) f.put(k, v);
+    annots.push(f);
+    return f;
+  }
+  widget({ name: 'name', ft: 'Tx', rect: [72, 742, 372, 764] });
+  widget({ name: 'address', ft: 'Tx', rect: [72, 660, 372, 720], ff: 1 << 12 });
+  const n = doc.newDictionary();
+  for (const [k, v] of Object.entries(onOff('Yes', 16, 16))) n.put(k, v);
+  const ap = doc.newDictionary();
+  ap.put('N', n);
+  widget({ name: 'agree', ft: 'Btn', rect: [72, 620, 88, 636], set: { AP: ap, AS: doc.newName('Off'), V: doc.newName('Off') } });
+  const group = doc.addObject(doc.newDictionary());
+  group.put('FT', doc.newName('Btn'));
+  group.put('T', doc.newString('color'));
+  group.put('Ff', (1 << 15) | (1 << 14));
+  group.put('V', doc.newName('Off'));
+  const kids = doc.newArray();
+  ['red', 'blue'].forEach((c, k) => {
+    const nk = doc.newDictionary();
+    for (const [s, v] of Object.entries(onOff(c, 16, 16))) nk.put(s, v);
+    const apk = doc.newDictionary();
+    apk.put('N', nk);
+    kids.push(widget({ parent: group, rect: [72 + k * 40, 580, 88 + k * 40, 596], set: { AP: apk, AS: doc.newName('Off') } }));
+  });
+  group.put('Kids', kids);
+  fields.push(group);
+  const opt = doc.newArray();
+  for (const o of ['London', 'Paris', 'תל אביב']) opt.push(doc.newString(o));
+  widget({ name: 'city', ft: 'Ch', rect: [72, 530, 272, 552], ff: 1 << 17, set: { Opt: opt } });
+  page.put('Annots', annots);
+  const form = doc.newDictionary();
+  form.put('Fields', fields);
+  const dr = doc.newDictionary(), fonts = doc.newDictionary();
+  fonts.put('Helv', helv);
+  dr.put('Font', fonts);
+  form.put('DR', dr);
+  form.put('DA', doc.newString('/Helv 0 Tf 0 g'));
+  doc.getTrailer().get('Root').put('AcroForm', form);
+  return doc.saveToBuffer('').asUint8Array().slice();
+}

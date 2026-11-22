@@ -8,7 +8,7 @@ import { isLargeForDevice, isMemoryError } from './limits.js';
 import { t, ltr, isRtl, lang, locale, setLang, pickLang } from './i18n.js';
 import { makeZip } from './zip.js';
 import { INKS, fontsFor, createPad, imageToSignature, typedSignature, loadFont, fontCss, signaturePng, signaturePreview,
-  textItem, markItem, isRtlText, TEXT_FONT, TEXT_LINE, TEXT_PAD } from './sign.js';
+  textItem, markItem, isRtlText, TEXT_FONT, TEXT_LINE, TEXT_PAD, fieldPng } from './sign.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdfjs/pdf.worker.min.mjs', import.meta.url).href;
 const PDFJS_ASSETS = {
@@ -35,7 +35,7 @@ const el = Object.fromEntries([
   'signCard', 'addSign', 'signHint', 'signDlg', 'tabDraw', 'tabType', 'tabUpload', 'paneDraw', 'paneType', 'paneUpload', 'pad', 'sigFile', 'sigPick', 'sigImg',
   'sigName', 'fontChips',
   'sigErr', 'sigClear', 'sigCancel', 'sigUse', 'sigRemember', 'savedSigs', 'savedList', 'signDlgTitle',
-  'addInitials', 'addDate', 'copyAll', 'copyDone', 'typeHint', 'addText', 'addCheck', 'addCross',
+  'addInitials', 'addDate', 'copyAll', 'copyDone', 'typeHint', 'addText', 'addCheck', 'addCross', 'formHint',
 ].map((id) => [id, $(id)]));
 
 let state = null;
@@ -124,6 +124,8 @@ async function open(files, passwords = []) {
     state.rot = new Int16Array(state.n + 1); // extra clockwise rotation per page
     state.override = new Map(); // page -> its own crop (see cropOf)
     state.signs = []; // { page, sig, box } signatures placed on pages
+    state.fields = new Map(); // page -> promise of its form fields (see fieldsOf)
+    state.formValues = new Map(); // field key -> value, for fields changed here
     state.selected = new Uint8Array(state.n + 1).fill(1);
     await collectGroups(my);
     if (my !== session) return;
@@ -131,6 +133,7 @@ async function open(files, passwords = []) {
     if (my !== session) return;
     showStripHint();
     renderHidden();
+    showFormHint(my);
     const g0 = state.groups[0];
     showFileMeta();
     state.large = isLargeForDevice(size, {
@@ -432,6 +435,7 @@ async function showPage(n) {
   el.stageBox.style.height = `${side ? cssW : cssH}px`;
   placeOverlay();
   renderSigns();
+  renderFields();
   refreshPanel(); // the new page may have its own crop
 
   const my = session;
@@ -852,6 +856,7 @@ function snapshot() {
     rot: Array.from(state.rot),
     selected: Array.from(state.selected),
     signs: state.signs.map((x) => ({ ...x, box: { ...x.box } })),
+    form: [...state.formValues],
   };
 }
 
@@ -904,6 +909,7 @@ function restore(snap) {
     state.selected = Uint8Array.from(snap.selected);
     dropTextEditor();
     state.signs = snap.signs.map((x) => ({ ...x, box: { ...x.box } }));
+    state.formValues = new Map(snap.form);
     activeSign = null;
     el.copyAll.hidden = true;
     el.copyDone.hidden = true;
@@ -912,6 +918,7 @@ function restore(snap) {
     updateSelectionUI();
     orderChanged();
     showPage(state.page);
+    syncFields();
   } finally {
     restoring = false;
   }
@@ -1084,6 +1091,138 @@ async function addDate() {
   const fits = fontsFor(text);
   const font = fits.some((f) => f.id === typedFont) ? typedFont : fits.find((f) => f.id === ({ he: 'gveret', ar: 'ruqaa' }[lang()] ?? 'dancing'))?.id ?? fits[0].id;
   placeSignature(await typedSignature(text, font, INKS[ink]), { width: 0.26 });
+}
+
+/* ---------- the PDF's own form fields ---------- */
+
+// Fields are filled in right on the page: each becomes an input over its
+// place. Values live in state.formValues (only the ones changed here), keyed
+// by file and field name, so widgets of one field show one value.
+
+const FIELD_TYPES = { Tx: 'text', Ch: 'choice' };
+
+function fieldsOf(p) {
+  if (!state.fields.has(p)) state.fields.set(p, loadFields(p));
+  return state.fields.get(p);
+}
+
+async function loadFields(p) {
+  const page = await getPage(p);
+  const vp = page.getViewport({ scale: 1 });
+  const src = state.files.indexOf(docOf(p));
+  const list = [];
+  for (const a of await page.getAnnotations({ intent: 'display' }).catch(() => [])) {
+    if (a.annotationType !== 20 || a.hidden || a.readOnly || !a.fieldName) continue; // 20: widget
+    const type = FIELD_TYPES[a.fieldType] ?? (a.checkBox ? 'check' : a.radioButton ? 'radio' : null);
+    if (!type) continue;
+    const [x0, y0, x1, y1] = vp.convertToViewportRectangle(a.rect);
+    const c = a.defaultAppearanceData?.fontColor;
+    list.push({
+      key: `${src}:${a.fieldName}`, name: a.fieldName, label: a.alternativeText || a.fieldName, type, rect: a.rect,
+      box: { x0: Math.min(x0, x1) / vp.width, y0: Math.min(y0, y1) / vp.height, x1: Math.max(x0, x1) / vp.width, y1: Math.max(y0, y1) / vp.height },
+      initial: type === 'check' ? (a.fieldValue && a.fieldValue !== 'Off' ? a.exportValue : 'Off')
+        : type === 'radio' ? (a.fieldValue ?? 'Off')
+          : type === 'choice' ? ((Array.isArray(a.fieldValue) ? a.fieldValue[0] : a.fieldValue) ?? '') : (a.fieldValue ?? ''),
+      on: a.checkBox ? a.exportValue : a.buttonValue, options: a.options ?? [], multiline: !!a.multiLine, maxLen: a.maxLen || 0,
+      size: a.defaultAppearanceData?.fontSize || 0, color: c ? `rgb(${c[0]}, ${c[1]}, ${c[2]})` : '#000',
+      align: a.textAlignment ?? 0, rotation: a.rotation || 0,
+    });
+  }
+  return list;
+}
+
+const fieldValue = (d) => (state.formValues.has(d.key) ? state.formValues.get(d.key) : d.initial);
+
+// The field's font size in points: its own, or one that fits it.
+const fieldPt = (d, g) => d.size || (d.multiline ? 11 : Math.min(12, (d.box.y1 - d.box.y0) * g.H * 0.66));
+
+async function renderFields() {
+  const p = state?.page;
+  if (!p) return;
+  const list = await fieldsOf(p);
+  if (!state || state.page !== p) return;
+  for (const n of el.stage.querySelectorAll('.form-field')) n.remove(); // also any drawn by a call that finished first
+  const g = state.groupOf[p], scale = el.stage.offsetWidth / g.W; // CSS px per point
+  for (const d of list) {
+    let node;
+    if (d.type === 'text') {
+      node = document.createElement(d.multiline ? 'textarea' : 'input');
+      if (!d.multiline) node.type = 'text';
+      if (d.maxLen) node.maxLength = d.maxLen;
+      node.dir = 'auto';
+      node.spellcheck = false;
+      node.addEventListener('input', () => setField(d, node.value));
+    } else if (d.type === 'choice') {
+      node = document.createElement('select');
+      const opts = d.options.map((o) => new Option(o.displayValue, o.exportValue));
+      if (!d.options.some((o) => o.exportValue === d.initial)) opts.unshift(new Option('', d.initial));
+      node.append(...opts);
+      node.addEventListener('change', () => setField(d, node.value));
+    } else {
+      node = Object.assign(document.createElement('input'), { type: d.type === 'check' ? 'checkbox' : 'radio', name: `field-${d.key}` });
+      node.addEventListener('change', () => setField(d, node.checked ? d.on : 'Off'));
+    }
+    node.classList.add('form-field', `ff-${d.type}`);
+    node.field = d;
+    node.setAttribute('aria-label', d.label);
+    node.title = d.label;
+    if (d.type === 'text' || d.type === 'choice') Object.assign(node.style, { fontSize: `${fieldPt(d, g) * scale}px`, color: d.color });
+    setRect(node, d.box);
+    el.stage.append(node);
+  }
+  syncFields();
+}
+
+function setField(d, value) {
+  state.formValues.set(d.key, value);
+  syncFields(d.key);
+  noteChange();
+}
+
+// Show the current values: all widgets of a field show the same one.
+function syncFields(key) {
+  for (const node of el.stage.querySelectorAll('.form-field')) {
+    const d = node.field;
+    if (key && d.key !== key) continue;
+    const v = fieldValue(d);
+    if (d.type === 'check' || d.type === 'radio') node.checked = v === d.on;
+    else if (node !== document.activeElement && node.value !== v) node.value = v;
+    // A choice reads from the side its text starts, as it's exported.
+    if (d.type === 'choice') node.dir = isRtlText(node.selectedOptions[0]?.text ?? '') ? 'rtl' : 'ltr';
+  }
+}
+
+// Tell people the PDF has a form, once its fields are known.
+async function showFormHint(my) {
+  el.formHint.hidden = true;
+  const found = await Promise.all(state.files.map((d) => d.pdf.getFieldObjects().catch(() => null)));
+  if (my !== session) return;
+  el.formHint.hidden = !found.some((f) => f && Object.keys(f).length);
+}
+
+// What the engine needs: each changed field on an exported page, with its
+// text drawn at 300 ppi for the fields that show text.
+async function fieldFills() {
+  if (!state.formValues.size) return [];
+  const fills = [];
+  for (let p = 1; p <= state.n; p++) {
+    if (!state.selected[p]) continue;
+    for (const d of await fieldsOf(p)) {
+      const value = fieldValue(d);
+      if (!state.formValues.has(d.key) || value === d.initial) continue;
+      if (d.type === 'radio' && value !== d.on) continue; // the chosen button sets the group
+      const fill = { page: p - 1, name: d.name, rect: d.rect, type: d.type, value };
+      if (d.type === 'text' || d.type === 'choice') {
+        const shown = d.type === 'choice' ? (d.options.find((o) => o.exportValue === value)?.displayValue ?? value) : value;
+        const W = Math.abs(d.rect[2] - d.rect[0]), H = Math.abs(d.rect[3] - d.rect[1]);
+        const [w, h] = d.rotation % 180 ? [H, W] : [W, H];
+        const k = Math.min(300 / 72, 2400 / w);
+        fill.png = await fieldPng(shown, w * k, h * k, { k, size: d.size, align: d.align, multiline: d.multiline, color: d.color });
+      }
+      fills.push(fill);
+    }
+  }
+  return fills;
 }
 
 /* ---------- text and marks ---------- */
@@ -1874,6 +2013,7 @@ async function exportPdf() {
     const ppi = Number(el.ppi.value);
     const compress = el.compress.checked ? { ppi, quality: QUALITY[ppi] ?? 78 } : null;
     const stamps = await signatureStamps();
+    const fields = await fieldFills();
 
     say(t('export.loading'));
     await warmWorker();
@@ -1898,7 +2038,7 @@ async function exportPdf() {
       });
       // Transferred, not copied: the worker owns the only copy from here on.
       worker.postMessage({ id, bytes: src.input, opts: { boxes, keep: keepList(),
-        rotate: Array.from(state.rot.subarray(1)), compress, stamps, stripMetadata: el.strip.checked,
+        rotate: Array.from(state.rot.subarray(1)), compress, stamps, fields, stripMetadata: el.strip.checked,
         password: src.password, removePassword: !el.keepPw.checked, split: groups?.map((g) => g.pages) } }, src.transfer);
     });
     retireWorker();

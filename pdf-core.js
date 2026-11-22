@@ -26,6 +26,13 @@ const SKIP_FILTERS = new Set(['JBIG2Decode', 'CCITTFaxDecode']);
  *                   user space, png: Uint8Array }] images (signatures) drawn on
  *                   top of the page, upright as the page finally shows (its
  *                   own rotation plus `rotate`),
+ *                 fields: [{ page: 0-based source page, name: the field's full name,
+ *                   rect: the widget's /Rect, type: 'text' | 'choice' | 'check' | 'radio',
+ *                   value, png?: Uint8Array }] values for the PDF's own form
+ *                   fields: text and choices are stored as the field's value and
+ *                   shown with png (the text drawn by the browser, which has the
+ *                   fonts for any script); a check box's value is its on-state
+ *                   or 'Off', a radio button's the on-state of the one chosen,
  *                 compress: null | { ppi, quality },
  *                 encodeJpeg?: async (rgb, w, h, quality) => Uint8Array }
  *                 (optional RGB encoder; the browser's uses 4:2:0 chroma
@@ -123,6 +130,7 @@ function prepare(mupdf, bytes, opts, progress) {
     for (const k of ['BleedBox', 'TrimBox', 'ArtBox']) page.delete(k);
   });
 
+  if (opts.fields?.length) fillFields(mupdf, doc, opts.fields, n);
   if (opts.stamps?.length) addStamps(mupdf, doc, opts.stamps, n, opts.rotate);
 
   // Extra clockwise rotation per source page, added to any /Rotate it has.
@@ -370,6 +378,81 @@ export function stripJpegMetadata(b) {
   let o = 0;
   for (const p of parts) { out.set(p, o); o += p.length; }
   return out;
+}
+
+/* ---------- form fields ---------- */
+
+function fillFields(mupdf, doc, fields, n) {
+  const byPage = new Map();
+  for (const f of fields) {
+    if (!(f.page >= 0 && f.page < n)) throw new Error(`No page ${f.page + 1} to fill`);
+    byPage.set(f.page, [...(byPage.get(f.page) ?? []), f]);
+  }
+  for (const [i, list] of byPage) {
+    const page = doc.loadPage(i);
+    const widgets = page.getWidgets();
+    const looks = []; // [widget, png]: our own appearance, put on last
+    for (const f of list) {
+      const named = widgets.filter((w) => w.getName() === f.name);
+      if (f.type === 'radio') {
+        const on = named.find((w) => onState(w) === f.value);
+        if (on && shownState(on) !== f.value) on.toggle();
+        continue;
+      }
+      const w = named.find((x) => sameRect(rectOf(x), f.rect)) ?? (named.length === 1 ? named[0] : null);
+      if (!w || w.isReadOnly()) continue;
+      if (f.type === 'check') {
+        if ((w.getValue() !== 'Off') !== (f.value !== 'Off')) w.toggle();
+      } else {
+        if (f.type === 'choice') w.setChoiceValue(f.value);
+        else w.setTextValue(f.value);
+        if (f.png) looks.push([w, f.png]);
+      }
+    }
+    for (const w of widgets) w.update();
+    page.update();
+    // mupdf has drawn the fields with its own fonts, which have no Hebrew or
+    // Arabic letters; ours replaces that, after the update so it stays.
+    for (const [w, png] of looks) setLook(mupdf, doc, w, png);
+  }
+}
+
+const shownState = (w) => w.getObject().get('AS').toString().replace(/^\//, '');
+function onState(w) {
+  const states = [];
+  const ap = w.getObject().get('AP'), n = ap.isDictionary() ? ap.get('N') : null;
+  if (n?.isDictionary()) n.forEach((_, k) => { if (k !== 'Off') states.push(k); });
+  return states[0];
+}
+function rectOf(w) {
+  const r = w.getObject().get('Rect');
+  return [0, 1, 2, 3].map((k) => r.get(k).asNumber());
+}
+const normRect = (r) => [Math.min(r[0], r[2]), Math.min(r[1], r[3]), Math.max(r[0], r[2]), Math.max(r[1], r[3])];
+const sameRect = (a, b) => { const p = normRect(a), q = normRect(b); return p.every((v, k) => Math.abs(v - q[k]) < 1); };
+
+// The widget shows the image across its rectangle, turned as the field's
+// own rotation (/MK /R, counterclockwise) asks.
+function setLook(mupdf, doc, w, png) {
+  const obj = w.getObject();
+  const [x0, y0, x1, y1] = rectOf(w);
+  const W = Math.abs(x1 - x0), H = Math.abs(y1 - y0);
+  const mk = obj.get('MK'), r = mk.isDictionary() ? mk.get('R') : null;
+  const deg = r?.isNumber() ? ((r.asNumber() % 360) + 360) % 360 : 0;
+  const image = new mupdf.Image(png);
+  const ref = doc.addImage(image);
+  image.destroy?.();
+  const res = doc.newDictionary(), xo = doc.newDictionary();
+  xo.put('Im0', ref);
+  res.put('XObject', xo);
+  const form = doc.addStream(`q ${uprightMatrix([0, 0, W, H], deg).map(num).join(' ')} cm /Im0 Do Q`, {});
+  form.put('Type', doc.newName('XObject'));
+  form.put('Subtype', doc.newName('Form'));
+  form.put('BBox', [0, 0, W, H]);
+  form.put('Resources', res);
+  const ap = doc.newDictionary();
+  ap.put('N', form);
+  obj.put('AP', ap);
 }
 
 /* ---------- stamps (signatures) ---------- */
