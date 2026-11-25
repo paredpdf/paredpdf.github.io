@@ -257,12 +257,15 @@ export function findBlanks(lines, texts) {
     if (boxed) continue;
     // Words on the same line give its height; else about a line of text.
     const near = texts.filter((t) => t.y0 < s.y + 14 && t.y1 > s.y && (t.x1 > s.x0 - 40 && t.x0 < s.x1 + 40));
-    const hgt = Math.min(16, roof - s.y - 1, Math.max(9, ...near.map((t) => t.size * 1.15)));
+    let hgt = Math.min(16, roof - s.y - 1, Math.max(9, ...near.map((t) => t.size * 1.15)));
     // Keep clear of words over the line itself; a sentence with a blank in
-    // it has only spaces there.
+    // it has only spaces there. Words of the line above only make the space
+    // lower.
     const over = texts.filter((t) => t.x0 < s.x1 && t.x1 > s.x0 && t.y0 < s.y + hgt && t.y1 > s.y + 1
       && hasLetters(textBetween(t, s.x0 + 2, s.x1 - 2)));
-    if (over.length) continue;
+    if (over.some((t) => t.y0 < s.y + 4)) continue;
+    hgt = Math.min(hgt, ...over.map((t) => t.y0 - s.y - 0.5));
+    if (hgt < MIN_H) continue;
     out.push([s.x0, s.y + 0.5, s.x1, s.y + hgt]);
   }
   // Underscores typed as text: ____

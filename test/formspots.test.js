@@ -111,3 +111,16 @@ test('a blank inside a sentence counts; an underlined word does not', () => {
   assert.equal(findBlanks(lines, sentence(blank)).length, 1);
   assert.equal(findBlanks(lines, sentence(word)).length, 0);
 });
+
+test('words of the line above a blank only make its space lower', () => {
+  const lines = { h: [{ y: 100, x0: 200, x1: 223 }], v: [] };
+  const words = (y) => [{ str: 'Number of children born this year', x0: 150, x1: 400, y0: y - 2, y1: y + 8, size: 10, rtl: false, x: 150, y, upright: true }];
+  // The line above reaches a point into the space over the blank.
+  const [space] = findBlanks(lines, words(111));
+  assert.ok(space, 'still a blank');
+  assert.ok(space[3] <= 109, 'below the words above');
+  assert.ok(space[3] - space[1] >= 7);
+  // Too close above leaves no room; on the line itself it's underlined.
+  assert.equal(findBlanks(lines, words(106)).length, 0);
+  assert.equal(findBlanks(lines, words(101)).length, 0);
+});
