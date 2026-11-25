@@ -1658,6 +1658,19 @@ test('a watermark covers every page, and its picture is stored once', async ({ p
   expect(refs.size).toBe(1);
 });
 
+test('the watermark and page numbers on screen let the page show through', async ({ page }) => {
+  await load(page);
+  await page.check('#numOn');
+  await page.check('#wmOn');
+  await page.keyboard.type('COPY');
+  await expect(page.locator('.pm-watermark canvas')).toHaveCount(1);
+  for (const sel of ['.pm-watermark canvas', '.pm-number canvas']) {
+    expect(await page.locator(sel).evaluate((c) => getComputedStyle(c).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
+  }
+  // The page itself keeps its white paper.
+  expect(await page.locator('#canvas').evaluate((c) => getComputedStyle(c).backgroundColor)).toBe('rgb(255, 255, 255)');
+});
+
 test('page numbers speak the chosen language', async ({ page }) => {
   await load(page, PDF, '/?lang=he');
   await expect(page.locator('#numStyle option[value="page"]')).toHaveText('עמוד 1 מתוך 6');

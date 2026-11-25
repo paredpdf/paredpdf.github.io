@@ -85,7 +85,7 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 .stage { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(var(--rot, 0deg)); line-height: 0; touch-action: none; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
 .clip { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 1; }
 .shade { position: absolute; box-shadow: 0 0 0 9999px var(--shade); }
-.stage canvas { display: block; background: #fff; }
+#canvas { display: block; background: #fff; } /* the page itself; marks over it stay see-through */
 
 .content-outline { position: absolute; border: 1.5px dashed #2a7de1; pointer-events: none; z-index: 2; }
 
@@ -157,7 +157,7 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 
 /* Excluded page badge on the preview */
 .excluded-badge { position: absolute; z-index: 5; top: 12px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); font: 600 13px/1 var(--font); padding: 7px 12px; border-radius: 99px; pointer-events: none; }
-.stage-box.excluded canvas { opacity: .45; }
+.stage-box.excluded #canvas, .stage-box.excluded .page-mark { opacity: .45; }
 
 /* Pages */
 .pages { margin-top: 22px; }
