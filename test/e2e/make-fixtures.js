@@ -91,6 +91,7 @@ export default function globalSetup() {
   fs.writeFileSync(path.join(FIXTURES, 'unsigned-field.pdf'), signedPdf(0, { unsigned: 1 }));
   fs.writeFileSync(path.join(FIXTURES, 'form.pdf'), formPdf());
   fs.writeFileSync(path.join(FIXTURES, 'flat-form.pdf'), flatFormPdf());
+  fs.writeFileSync(path.join(FIXTURES, 'flat-form-sideways.pdf'), flatFormPdf({ sideways: true }));
   // Phone photos: a landscape-stored one the camera marked "turn a quarter
   // clockwise" (so it shows portrait), with its location; and a PNG.
   fs.writeFileSync(path.join(FIXTURES, 'turned-photo.jpg'), exifJpeg({ orientation: 6 }));

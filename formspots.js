@@ -118,7 +118,9 @@ export function textBoxes(items, fontName = () => '') {
     const xs = [e - vx * down, e + ux * w - vx * down, e + vx * up, e + ux * w + vx * up];
     const ys = [f - vy * down, f + uy * w - vy * down, f + vy * up, f + uy * w + vy * up];
     out.push({ str: t.str, x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys),
-      size, rtl: t.dir === 'rtl', font: fontName(t.fontName) || '', x: e, y: f, upright: Math.abs(b) < 1e-3 && Math.abs(c) < 1e-3 && a > 0 });
+      size, rtl: t.dir === 'rtl', font: fontName(t.fontName) || '', x: e, y: f, upright: Math.abs(b) < 1e-3 && Math.abs(c) < 1e-3 && a > 0,
+      // The way it reads, to the nearest quarter turn: 0 along x, 90 up the page...
+      angle: (((Math.round(Math.atan2(b, a) / (Math.PI / 2)) * 90) % 360) + 360) % 360 });
   }
   return out;
 }
@@ -283,8 +285,54 @@ export function findBlanks(lines, texts) {
 // Every place to write on a page whose view box is `view` ([x0, y0, x1, y1]):
 // [{ kind: 'check' | 'text', rect: [x0, y0, x1, y1], rtl }], in user space.
 // rtl: the page's words mostly read right to left, so text starts at the
-// right of its place.
+// right of its place. On a form printed sideways, "right" is as it reads.
 export function findSpots({ lines, texts, view }) {
+  // A form printed on its side: find its places as if it were upright, then
+  // turn them back.
+  const turn = readingTurn(texts);
+  if (turn) {
+    const spots = findUpright(turnLines(lines, turn), turnTexts(texts, turn), turnRect(view, turn));
+    return spots.map((s) => ({ ...s, rect: turnRect(s.rect, -turn) }));
+  }
+  return findUpright(lines, texts, view);
+}
+
+// The quarter turn most of the page's words read at.
+export function readingTurn(texts) {
+  const weight = new Map();
+  for (const t of texts) if (hasLetters(t.str)) weight.set(t.angle ?? 0, (weight.get(t.angle ?? 0) ?? 0) + t.str.length);
+  let best = 0;
+  for (const [a, w] of weight) if (w > (weight.get(best) ?? 0)) best = a;
+  return best;
+}
+
+// Turning by -deg, so text that reads at deg reads along x. Back with -(-deg).
+function turnPoint(x, y, deg) {
+  const r = (-deg * Math.PI) / 180, c = Math.round(Math.cos(r)), s = Math.round(Math.sin(r));
+  return [x * c - y * s, x * s + y * c];
+}
+function turnRect(r, deg) {
+  const [ax, ay] = turnPoint(r[0], r[1], deg), [bx, by] = turnPoint(r[2], r[3], deg);
+  return [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)];
+}
+function turnLines(lines, deg) {
+  const h = [], v = [];
+  const add = ([x0, y0], [x1, y1], dashed) => {
+    if (Math.abs(y1 - y0) < 0.5) h.push({ y: y0, x0: Math.min(x0, x1), x1: Math.max(x0, x1), dashed });
+    else v.push({ x: x0, y0: Math.min(y0, y1), y1: Math.max(y0, y1), dashed });
+  };
+  for (const s of lines.h) add(turnPoint(s.x0, s.y, deg), turnPoint(s.x1, s.y, deg), s.dashed);
+  for (const s of lines.v) add(turnPoint(s.x, s.y0, deg), turnPoint(s.x, s.y1, deg), s.dashed);
+  return { h, v };
+}
+function turnTexts(texts, deg) {
+  return texts.map((t) => {
+    const [x0, y0, x1, y1] = turnRect([t.x0, t.y0, t.x1, t.y1], deg), [x, y] = turnPoint(t.x, t.y, deg);
+    return { ...t, x0, y0, x1, y1, x, y, angle: (((t.angle ?? 0) - deg) % 360 + 360) % 360, upright: t.angle === deg };
+  });
+}
+
+function findUpright(lines, texts, view) {
   const rtl = texts.filter((t) => t.rtl).length > texts.filter((t) => hasLetters(t.str) && !t.rtl).length;
   const checks = findCheckboxes(texts);
   const spots = checks.map((rect) => ({ kind: 'check', rect }));

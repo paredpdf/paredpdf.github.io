@@ -1869,6 +1869,45 @@ test('a tap on a place types there, and a tap on a checkbox ticks it', async ({ 
   expect((mark[1] + mark[3]) / 2).toBeCloseTo(650 + 12 * 0.4, -1);
 });
 
+test('a form printed sideways, turned to read, is filled as it reads', async ({ page }) => {
+  await load(page, path.join(FIXTURES, 'flat-form-sideways.pdf'));
+  await page.locator('.thumb[data-p="1"] .trot').click(); // a quarter right: now upright
+  await page.click('#fillForm');
+  await expect(page.locator('.fill-spot.fs-check')).toHaveCount(2);
+  const spots = page.locator('.fill-spot.fs-text');
+  await expect(spots).toHaveCount(3);
+  // The Name cell: furthest left on the top row, as the page is shown.
+  const name = await spots.evaluateAll((ns) => {
+    const boxes = ns.map((n) => n.getBoundingClientRect());
+    const top = Math.min(...boxes.map((r) => r.y));
+    return boxes.reduce((best, r, i) => (Math.abs(r.y - top) < 2 && (best < 0 || r.x < boxes[best].x) ? i : best), -1);
+  });
+  await spots.nth(name).scrollIntoViewIfNeeded();
+  const cell = await spots.nth(name).boundingBox();
+  await spots.nth(name).click();
+  await page.keyboard.type('Ada Lovelace');
+  await page.keyboard.press('Escape');
+  // Reads upright, starting at the cell's left, inside it.
+  const typed = await page.locator('.sig').first().boundingBox();
+  expect(typed.width).toBeGreaterThan(typed.height);
+  expect(Math.abs(typed.x - cell.x)).toBeLessThan(3);
+  expect(typed.y).toBeGreaterThan(cell.y - 2);
+  expect(typed.y + typed.height).toBeLessThan(cell.y + cell.height + 2);
+  await page.locator('.fill-spot.fs-check').first().click();
+  await expect(page.locator('.sig')).toHaveCount(2);
+
+  // In the file, the form is drawn at (842 - y, x) of the upright one: the
+  // Name cell's place is x 113..142, from y 50; the boxes centre at x 187.
+  const [p0] = signatures(await download(page));
+  const [text, mark] = p0.rects;
+  expect(text[0]).toBeGreaterThan(113);
+  expect(text[2]).toBeLessThan(143);
+  expect(text[1]).toBeGreaterThan(50);
+  expect(text[1]).toBeLessThan(56);
+  expect((mark[0] + mark[2]) / 2).toBeCloseTo(187.2, -1);
+  expect([65, 145].some((y) => Math.abs((mark[1] + mark[3]) / 2 - y) < 3)).toBe(true);
+});
+
 test('undo takes back what was put in a place, and its outline comes back', async ({ page }) => {
   await load(page, FLAT);
   await page.click('#fillForm');

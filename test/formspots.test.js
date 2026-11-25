@@ -61,6 +61,17 @@ test('finds the cells, checkboxes and blank line of a flat form', async () => {
   assert.ok(texts.every((t) => !t.rtl), 'an English form reads from the left');
 });
 
+test('finds the same places on a form printed sideways', async () => {
+  const upright = findSpots(await readPage(flatFormPdf()));
+  const side = findSpots(await readPage(flatFormPdf({ sideways: true })));
+  // Drawn at (842 - y, x): turned back, each is where it is on the upright form.
+  const back = ([x0, y0, x1, y1]) => [y0, 842 - x1, y1, 842 - x0];
+  assert.equal(side.length, upright.length);
+  for (const s of upright) {
+    assert.ok(side.some((o) => o.kind === s.kind && back(o.rect).every((v, i) => Math.abs(v - s.rect[i]) < 0.5)), `${s.kind} at ${s.rect}`);
+  }
+});
+
 test('a page without boxes has nowhere to write', async () => {
   assert.deepEqual(findSpots(await readPage(pageWith('BT /F1 12 Tf 72 700 Td (Just a letter.) Tj ET'))), []);
 });

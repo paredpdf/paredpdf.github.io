@@ -259,7 +259,9 @@ export const FLAT_FORM = {
   checks: [[60, 650], [140, 650]], checkSize: 12,
   blank: [140, 598, 260],
 };
-export function flatFormPdf() {
+// sideways: drawn turned a quarter left on a landscape page, so it reads
+// upright only once the page is turned a quarter right.
+export function flatFormPdf({ sideways = false } = {}) {
   const doc = new mupdf.PDFDocument();
   const font = (name) => {
     const f = doc.addObject(doc.newDictionary());
@@ -277,6 +279,8 @@ export function flatFormPdf() {
     'BT /F2 12 Tf 140 650 Td (q) Tj ET BT /F1 11 Tf 156 651 Td (No) Tj ET',
     'BT /F1 11 Tf 60 600 Td (Date of birth) Tj ET 140 598 m 260 598 l S',
   ].join('\n');
-  doc.insertPage(-1, doc.addPage([0, 0, 595, 842], 0, { Font: { F1: font('Helvetica'), F2: font('ZapfDingbats') } }, content));
+  const page = sideways ? [0, 0, 842, 595] : [0, 0, 595, 842];
+  const drawn = sideways ? `q 0 1 -1 0 842 0 cm\n${content}\nQ` : content;
+  doc.insertPage(-1, doc.addPage(page, 0, { Font: { F1: font('Helvetica'), F2: font('ZapfDingbats') } }, drawn));
   return doc.saveToBuffer('compress=yes').asUint8Array().slice();
 }
