@@ -1011,6 +1011,24 @@ test('on the start screen, a new version takes over by itself', async ({ page, c
   await context.setOffline(false);
 });
 
+test('once the start screen is used, a new version waits, so a file being chosen is kept', async ({ page, request, browserName }, info) => {
+  test.skip(browserName !== 'chromium', 'service worker updates are checked in Chromium');
+  const name = `chosen-${info.project.name}`;
+  await installed(page, request, name, 'aaaaaaa11111');
+  // Someone taps "choose a file"; the picker is open as the new version lands.
+  const picker = page.waitForEvent('filechooser');
+  await page.click('#pick');
+  const chooser = await picker;
+  await page.evaluate(() => { window.beforeUpdate = true; });
+  await deployAs(request, name, 'ddddddd44444');
+  await checkForUpdate(page);
+  await expect(page.locator('#updateBar')).toBeVisible({ timeout: 15_000 });
+  // The file they picked opens: no reload took it away.
+  await chooser.setFiles(PDF);
+  await expect(page.locator('#exportCard')).toBeVisible({ timeout: 60_000 });
+  expect(await page.evaluate(() => window.beforeUpdate)).toBe(true);
+});
+
 test('with a file open, a new version waits for "Reload"', async ({ page, request, browserName }, info) => {
   test.skip(browserName !== 'chromium', 'service worker updates are checked in Chromium');
   const name = `open-${info.project.name}`;

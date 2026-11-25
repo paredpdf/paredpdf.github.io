@@ -91,6 +91,7 @@ function resetAll() {
 // Photos and other images among them become PDF pages first.
 async function open(files, passwords = []) {
   files = Array.isArray(files) ? files : [files];
+  touched = true; // a file is coming: no switching versions under it
   resetAll();
   const my = session;
   el.drop.hidden = true;
@@ -2478,10 +2479,17 @@ async function exportPdf() {
 /* ---------- offline support ---------- */
 
 // A deployed version installs in the background and waits (see sw.js). It
-// takes over at a moment that can't lose work: straight away on the start
-// screen, after "Reload" or "Start over" when a file is open. The page only
+// takes over at a moment that can't lose work: straight away on a start
+// screen nobody has used yet, otherwise after "Reload" or "Start over". The page only
 // reloads for a switch it asked for.
 let waitingWorker = null, switching = false;
+// Whether the page has been used. The new version takes a few seconds to
+// download, and someone may be choosing a file by then (the picker may
+// still be open, or the file still opening): a reload would lose it.
+let touched = false;
+for (const type of ['pointerdown', 'keydown', 'dragenter', 'drop']) {
+  window.addEventListener(type, () => { touched = true; }, { capture: true, passive: true });
+}
 // Only a page that was already running on an earlier version can be
 // updated. On a first visit the new worker takes control by itself, and
 // some browsers (WebKit) report it as installed only after that: without
@@ -2498,7 +2506,7 @@ function offerUpdate(reg) {
   const worker = reg.waiting;
   if (!worker || !ranOnEarlierVersion) return;
   waitingWorker = worker;
-  if (!state) applyUpdate();
+  if (!state && !touched) applyUpdate();
   else el.updateBar.hidden = false;
 }
 
