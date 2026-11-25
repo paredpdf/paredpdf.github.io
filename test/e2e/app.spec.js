@@ -1682,9 +1682,9 @@ test('the watermark and page numbers on screen let the page show through', async
   await page.check('#wmOn');
   await page.keyboard.type('COPY');
   await expect(page.locator('.pm-watermark canvas')).toHaveCount(1);
-  for (const sel of ['.pm-watermark canvas', '.pm-number canvas']) {
-    expect(await page.locator(sel).evaluate((c) => getComputedStyle(c).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
-  }
+  // Read in one go: the marks are drawn again as the text changes.
+  const backgrounds = () => page.evaluate(() => [...document.querySelectorAll('.page-mark canvas')].map((c) => getComputedStyle(c).backgroundColor));
+  await expect.poll(backgrounds).toEqual(['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0)']);
   // The page itself keeps its white paper.
   expect(await page.locator('#canvas').evaluate((c) => getComputedStyle(c).backgroundColor)).toBe('rgb(255, 255, 255)');
 });
