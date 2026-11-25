@@ -307,6 +307,7 @@ main { padding: 24px; max-width: 1240px; margin: 0 auto; }
 .fill-row { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; margin: 0 0 4px; }
 .fill-row .btn { padding: 8px 10px; font-size: 14px; }
 .fill-row .mark { min-width: 44px; font-size: 18px; line-height: 1; }
+.text-font { grid-template-columns: auto 1fr; align-items: center; gap: 8px; margin: 4px 0; }
 .form-field { position: absolute; z-index: 5; box-sizing: border-box; margin: 0; padding: 0 .15em; border: 0; border-radius: 0; background: rgba(214, 228, 255, .9); color: #000; font-family: Arial, Helvetica, sans-serif; line-height: 1.15; }
 .form-field:hover { background: rgba(196, 214, 255, .95); }
 .form-field:focus { outline: 2px solid var(--accent); outline-offset: 0; background: #fff; }

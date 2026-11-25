@@ -35,6 +35,10 @@ const VENDOR_FILES = [
   'vendor/fonts/playpen-sans-hebrew/playpen-sans-hebrew-latin-400-normal.woff2', 'vendor/fonts/playpen-sans-hebrew/playpen-sans-hebrew-hebrew-400-normal.woff2',
   'vendor/fonts/amatic-sc/amatic-sc-latin-400-normal.woff2', 'vendor/fonts/amatic-sc/amatic-sc-hebrew-400-normal.woff2',
   'vendor/fonts/solitreo/solitreo-latin-400-normal.woff2', 'vendor/fonts/solitreo/solitreo-hebrew-400-normal.woff2',
+  'vendor/fonts/heebo/heebo-latin-400-normal.woff2', 'vendor/fonts/heebo/heebo-hebrew-400-normal.woff2',
+  'vendor/fonts/frank-ruhl-libre/frank-ruhl-libre-latin-400-normal.woff2', 'vendor/fonts/frank-ruhl-libre/frank-ruhl-libre-hebrew-400-normal.woff2',
+  'vendor/fonts/david-libre/david-libre-latin-400-normal.woff2', 'vendor/fonts/david-libre/david-libre-hebrew-400-normal.woff2',
+  'vendor/fonts/noto-sans-arabic/noto-sans-arabic-arabic-400-normal.woff2', 'vendor/fonts/noto-naskh-arabic/noto-naskh-arabic-arabic-400-normal.woff2',
 ];
 
 self.addEventListener('install', (event) => {

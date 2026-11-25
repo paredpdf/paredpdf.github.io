@@ -1,19 +1,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fontsFor, inkAlpha } from '../sign.js';
+import { fontsFor, inkAlpha, TEXT_FONTS } from '../sign.js';
 
 const ids = (text) => fontsFor(text).map((f) => f.id);
 
-test('offers every style for Latin names', () => {
-  assert.deepEqual(ids('Ada Lovelace'), ['dancing', 'caveat', 'gveret', 'ruqaa']);
+test('offers every style for Latin names, handwritten then formal', () => {
+  assert.deepEqual(ids('Ada Lovelace'), ['dancing', 'caveat', 'gveret', 'ruqaa', 'sans', 'serif', 'david']);
 });
 
 test('offers only styles that can write Hebrew or Arabic', () => {
-  assert.deepEqual(ids('שי אפשטיין'), ['gveret', 'playpen', 'amatic', 'solitreo']);
-  assert.deepEqual(ids('ليلى'), ['ruqaa']);
-  assert.deepEqual(ids('Shai שי'), ['gveret', 'playpen', 'amatic', 'solitreo']);
-  // No single style writes both, so the Latin set is offered and fallbacks fill in.
-  assert.deepEqual(ids('שי ليلى'), ['dancing', 'caveat', 'gveret', 'ruqaa']);
+  assert.deepEqual(ids('שי אפשטיין'), ['gveret', 'playpen', 'amatic', 'solitreo', 'sans', 'serif', 'david']);
+  assert.deepEqual(ids('ليلى'), ['ruqaa', 'sans', 'serif']);
+  assert.deepEqual(ids('Shai שי'), ['gveret', 'playpen', 'amatic', 'solitreo', 'sans', 'serif', 'david']);
+  // Only the formal styles write both.
+  assert.deepEqual(ids('שי ليلى'), ['sans', 'serif']);
+});
+
+test('text on the page offers the plain font, then the formal ones', () => {
+  assert.deepEqual(TEXT_FONTS.map((f) => f.id), ['plain', 'sans', 'serif', 'david']);
 });
 
 // One row of RGBA pixels from grey levels.

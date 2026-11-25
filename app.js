@@ -11,7 +11,7 @@ import { imagesToPdfs, isImageFile, isPdfFile } from './images.js';
 import { pageLines, textBoxes, findSpots } from './formspots.js';
 import { NUMBER_PT, NUMBER_LINE, textWidth, numberCanvas, watermarkCanvas, canvasPng, numberSpot } from './marks.js';
 import { INKS, fontsFor, createPad, imageToSignature, typedSignature, loadFont, fontCss, signaturePng, signaturePreview,
-  textItem, markItem, isRtlText, TEXT_FONT, TEXT_LINE, TEXT_PAD, fieldPng } from './sign.js';
+  textItem, markItem, isRtlText, TEXT_LINE, TEXT_PAD, TEXT_FONTS, textFamily, loadTextFont, fieldPng } from './sign.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdfjs/pdf.worker.min.mjs', import.meta.url).href;
 const PDFJS_ASSETS = {
@@ -38,7 +38,7 @@ const el = Object.fromEntries([
   'signCard', 'addSign', 'signHint', 'signDlg', 'tabDraw', 'tabType', 'tabUpload', 'paneDraw', 'paneType', 'paneUpload', 'pad', 'sigFile', 'sigPick', 'sigImg',
   'sigName', 'fontChips',
   'sigErr', 'sigClear', 'sigCancel', 'sigUse', 'sigRemember', 'savedSigs', 'savedList', 'signDlgTitle',
-  'addInitials', 'addDate', 'copyAll', 'copyDone', 'typeHint', 'addText', 'addCheck', 'addCross', 'formHint', 'fillForm', 'fillHint',
+  'addInitials', 'addDate', 'copyAll', 'copyDone', 'typeHint', 'addText', 'addCheck', 'addCross', 'textFont', 'formHint', 'fillForm', 'fillHint',
   'zoomIn', 'zoomOut', 'zoomFit', 'marksCard', 'numOn', 'numOpts', 'numWhere', 'numStyle', 'wmOn', 'wmOpts', 'wmText',
 ].map((id) => [id, $(id)]));
 
@@ -1358,9 +1358,27 @@ async function fieldFills() {
 
 const TEXT_PT = 11, MARK_PT = 14; // new ones' size on the page, in points
 
+// The font for text: remembered on this device, and loaded ahead, since
+// text is measured as it's typed.
+let textFont = 'plain';
+try { textFont = localStorage.getItem('pared-text-font') ?? 'plain'; } catch { /* private mode */ }
+if (!TEXT_FONTS.some((f) => f.id === textFont)) textFont = 'plain';
+el.textFont.append(...TEXT_FONTS.map((f) => new Option(f.name, f.id)));
+el.textFont.value = textFont;
+loadTextFont(textFont).catch(() => {});
+
+el.textFont.addEventListener('change', async () => {
+  const font = (textFont = el.textFont.value), item = activeSign; // the selected text, before the font loads
+  try { localStorage.setItem('pared-text-font', font); } catch { /* private mode: just this visit */ }
+  await loadTextFont(font).catch(() => {});
+  // The selected text takes the new font.
+  if (!state || !item || item.sig.kind !== 'text' || !state.signs.includes(item)) return;
+  restyleText(item, textItem(item.sig.text, item.sig.color, font));
+});
+
 el.addText.addEventListener('click', () => {
   if (!state) return;
-  const item = placeSized(textItem('', INKS[ink]), TEXT_PT * (TEXT_LINE + 2 * TEXT_PAD));
+  const item = placeSized(textItem('', INKS[ink], textFont), TEXT_PT * (TEXT_LINE + 2 * TEXT_PAD));
   editText(item);
 });
 el.addCheck.addEventListener('click', () => { if (state) signNode(placeSized(markItem('check', INKS[ink]), MARK_PT))?.focus(); });
@@ -1490,7 +1508,7 @@ function fillSpot(s) {
     signNode(addItem(sig, { x0: cx - bw / 2, y0: cy - bh / 2, x1: cx + bw / 2, y1: cy + bh / 2 }))?.focus();
     return;
   }
-  const sig = textItem('', INKS[ink]);
+  const sig = textItem('', INKS[ink], textFont);
   const em = Math.max(5, Math.min(TEXT_PT, (down * 0.9) / (TEXT_LINE + 2 * TEXT_PAD)));
   const [bw, bh] = viewToBox(g, side, em * (sig.w + 2 * TEXT_PAD), em * (sig.lines * TEXT_LINE + 2 * TEXT_PAD));
   const align = s.rtl ? 'r' : 'l';
@@ -1548,13 +1566,18 @@ function textEm(item) {
 
 function textChanged() {
   const { item, area } = textEdit;
+  restyleText(item, textItem(area.value, item.sig.color, item.sig.font));
+}
+
+// Give text new words or a new font, keeping its letters' size and the
+// corner it grows from.
+function restyleText(item, sig) {
   const em = textEm(item), g = state.groupOf[item.page], b = item.box;
   const turn = state.rot[item.page] || 0;
-  const sig = textItem(area.value, item.sig.color);
   const [bw, bh] = viewToBox(g, turn % 180 !== 0, em * (sig.w + 2 * TEXT_PAD), em * (sig.lines * TEXT_LINE + 2 * TEXT_PAD));
   // Keep the corner it grows from where it is: the side its place on a
   // form reads from, or else the side the text reads from.
-  const corner = VIEW_CORNER[turn][(item.align ? item.align === 'r' : isRtlText(area.value)) ? 'tr' : 'tl'];
+  const corner = VIEW_CORNER[turn][(item.align ? item.align === 'r' : isRtlText(sig.text)) ? 'tr' : 'tl'];
   const [x0, x1] = corner[1] === 'l' ? [b.x0, b.x0 + bw] : [b.x1 - bw, b.x1];
   const [y0, y1] = corner[0] === 't' ? [b.y0, b.y0 + bh] : [b.y1 - bh, b.y1];
   item.sig = sig;
@@ -1562,7 +1585,8 @@ function textChanged() {
   item.box = clampSign(item, { x0, y0, x1, y1 });
   const node = signNode(item);
   if (node) setSigRect(node);
-  layoutTextEditor();
+  if (textEdit?.item === item) layoutTextEditor();
+  else if (node) showPreview(item, node.querySelector('img'));
   renderThumbSigns(item.page);
 }
 
@@ -1574,7 +1598,7 @@ function layoutTextEditor() {
   if (!node) return;
   const px = (textEm(item) * el.stage.offsetWidth) / state.groupOf[item.page].W; // one em on screen
   const size = Math.max(16, px);
-  Object.assign(area.style, { font: `${size}px/${TEXT_LINE} ${TEXT_FONT}`, color: item.sig.color, padding: `${TEXT_PAD * size}px` });
+  Object.assign(area.style, { font: `${size}px/${TEXT_LINE} ${textFamily(item.sig)}`, color: item.sig.color, padding: `${TEXT_PAD * size}px` });
   area.rows = Math.max(1, area.value.split('\n').length);
   area.style.width = '0';
   area.style.width = `${area.scrollWidth}px`;
@@ -1617,6 +1641,8 @@ el.stage.addEventListener('focusin', (e) => {
   activeSign = node.item;
   el.copyAll.hidden = state.n < 2;
   el.copyDone.hidden = true;
+  // The font choice shows the selected text's font, and changes it.
+  if (node.item.sig.kind === 'text') el.textFont.value = textFont = node.item.sig.font ?? 'plain';
 });
 
 // Copy the selected one to every exported page: the same place and size

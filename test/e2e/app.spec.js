@@ -705,9 +705,10 @@ test('typed names in Hebrew and Arabic get a handwriting font for their script',
   await page.click('#tabType');
   // Hebrew interface: the Hebrew style is picked by default.
   await page.fill('#sigName', 'שי אפשטיין');
-  // The Hebrew styles are offered, Gveret Levin first.
-  await expect(page.locator('.fontchip')).toHaveCount(4);
-  expect(await page.locator('.fontchip').evaluateAll((cs) => cs.map((c) => c.title))).toEqual(['Gveret Levin', 'Playpen Sans Hebrew', 'Amatic SC', 'Solitreo']);
+  // The Hebrew styles are offered, Gveret Levin first, then the formal ones.
+  await expect(page.locator('.fontchip')).toHaveCount(7);
+  expect(await page.locator('.fontchip').evaluateAll((cs) => cs.map((c) => c.title))).toEqual([
+    'Gveret Levin', 'Playpen Sans Hebrew', 'Amatic SC', 'Solitreo', 'Heebo', 'Frank Ruhl Libre', 'David Libre']);
   await expect(page.locator('.fontchip[aria-pressed="true"]')).toHaveAttribute('title', 'Gveret Levin');
   // Each one's own Hebrew letters load (no fallback).
   for (const family of ['Pared Playpen', 'Pared Amatic', 'Pared Solitreo']) {
@@ -1853,4 +1854,53 @@ test('a page with real form fields offers no places over them', async ({ page })
   await page.click('#fillForm');
   await expect(page.locator('#fillHint')).toContainText('No places to write');
   await expect(page.locator('.fill-spot')).toHaveCount(0);
+});
+
+/* ---------- formal fonts ---------- */
+
+test('a typed signature can be in a formal font', async ({ page }) => {
+  await load(page, PDF, '/?lang=he');
+  await typeSignature(page, 'שי אפשטיין', 'David Libre');
+  expect(await page.evaluate(() => document.fonts.check('20px "Pared David"', 'שי'))).toBe(true);
+  await expect(page.locator('.sig')).toHaveCount(1);
+  expect(signatures(await download(page))[0].rects).toHaveLength(1);
+});
+
+test('text can be in a formal font: the choice changes the selected text, and is remembered', async ({ page }) => {
+  await load(page);
+  await expect(page.locator('#textFont')).toHaveValue('plain');
+  await addText(page, 'Ada Lovelace');
+  await page.keyboard.press('Escape');
+  const item = page.locator('.sig');
+  const plain = await item.boundingBox();
+  await page.selectOption('#textFont', 'serif');
+  await expect.poll(() => page.evaluate(() => document.fonts.check('20px "Pared Frank Ruhl"', 'Ada'))).toBe(true);
+  // The same text in another font: as tall, another width, from the same corner.
+  await expect.poll(async () => Math.round((await item.boundingBox()).width)).not.toBe(Math.round(plain.width));
+  const serif = await item.boundingBox();
+  expect(Math.abs(serif.height - plain.height)).toBeLessThan(1);
+  expect(Math.abs(serif.x - plain.x)).toBeLessThan(1);
+  // New text takes it too, and the typing field shows it.
+  await page.click('#addText');
+  expect(await page.locator('.text-edit').evaluate((a) => getComputedStyle(a).fontFamily)).toContain('Pared Frank Ruhl');
+  await page.keyboard.type('London');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(600); // a step of its own for undo
+  // Changing it again changes the selected (last) text; selecting shows
+  // each text's own font.
+  await page.selectOption('#textFont', 'david');
+  await item.first().focus();
+  await expect(page.locator('#textFont')).toHaveValue('serif');
+  await item.last().focus();
+  await expect(page.locator('#textFont')).toHaveValue('david');
+  expect(signatures(await download(page))[0].rects).toHaveLength(2);
+  // Undo takes the font change back.
+  await page.waitForTimeout(600);
+  await page.click('#undo');
+  await expect(item).toHaveCount(2);
+  await item.last().focus();
+  await expect(page.locator('#textFont')).toHaveValue('serif');
+  await page.selectOption('#textFont', 'david'); // remembered for next time
+  await page.reload();
+  await expect(page.locator('#textFont')).toHaveValue('david');
 });

@@ -22,7 +22,7 @@ export const VENDOR = {
     from: nm('mupdf'),
     files: ['dist/mupdf.js', 'dist/mupdf-wasm.js', 'dist/mupdf-wasm.wasm', 'LICENSE'],
     dirs: [],
-  },  // Handwriting fonts for typed signatures (SIL Open Font License), regular
+  },  // Fonts for typed signatures and text (SIL Open Font License), regular
   // weight only, and only the scripts sign.js uses.
   ...Object.fromEntries([
     ['dancing-script', ['latin', 'latin-ext']],
@@ -32,6 +32,12 @@ export const VENDOR = {
     ['playpen-sans-hebrew', ['latin', 'hebrew']],
     ['amatic-sc', ['latin', 'hebrew']],
     ['solitreo', ['latin', 'hebrew']],
+    // Formal fonts, for typed signatures and text on the page.
+    ['heebo', ['latin', 'hebrew']],
+    ['frank-ruhl-libre', ['latin', 'hebrew']],
+    ['david-libre', ['latin', 'hebrew']],
+    ['noto-sans-arabic', ['arabic']],
+    ['noto-naskh-arabic', ['arabic']],
   ].map(([font, subsets]) => [`fonts/${font}`, {
     from: nm('@fontsource', font),
     files: [...subsets.map((sub) => `files/${font}-${sub}-400-normal.woff2`), 'LICENSE'],

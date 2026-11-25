@@ -7,9 +7,9 @@
 //   { kind: 'image', url, aspect }   a transparent PNG data URL
 //   { kind: 'type', text, font, color, aspect, m: { l, r, a, d } }
 //     typed in one of FONTS; m is the text's measured extent in ems
-//   { kind: 'text', text, color, aspect, lines, w }
-//     plain text filled in on the page, in TEXT_FONT, one or more lines;
-//     w is the widest line in ems
+//   { kind: 'text', text, color, aspect, lines, w, font? }
+//     plain text filled in on the page, one or more lines, in one of
+//     TEXT_FONTS (no font: TEXT_FONT); w is the widest line in ems
 //   { kind: 'mark', mark: 'check' | 'cross', color, aspect: 1 }
 
 export const INKS = { black: '#1b1b1f', blue: '#1d3f9e' };
@@ -208,10 +208,18 @@ const FACES = {
   'Pared Playpen': [['playpen-sans-hebrew', 'latin', LATIN], ['playpen-sans-hebrew', 'hebrew', HEBREW]],
   'Pared Amatic': [['amatic-sc', 'latin', LATIN], ['amatic-sc', 'hebrew', HEBREW]],
   'Pared Solitreo': [['solitreo', 'latin', LATIN], ['solitreo', 'hebrew', HEBREW]],
+  // Formal, printed letters: for typed signatures and text on the page.
+  'Pared Heebo': [['heebo', 'latin', LATIN], ['heebo', 'hebrew', HEBREW]],
+  'Pared Frank Ruhl': [['frank-ruhl-libre', 'latin', LATIN], ['frank-ruhl-libre', 'hebrew', HEBREW]],
+  'Pared David': [['david-libre', 'latin', LATIN], ['david-libre', 'hebrew', HEBREW]],
+  'Pared Arabic Sans': [['noto-sans-arabic', 'arabic', ARABIC]],
+  'Pared Naskh': [['noto-naskh-arabic', 'arabic', ARABIC]],
 };
 
-// Styles to choose from. Each falls back to the Hebrew and Arabic fonts, so
-// a name in any of the interface's scripts comes out handwritten.
+// Styles to choose from. Each handwritten one falls back to the Hebrew and
+// Arabic handwriting, so a name in any of the interface's scripts comes out
+// handwritten; each formal one (`formal`) to a printed Arabic font of the
+// same kind. Formal styles also set text typed on the page.
 // `scripts`: what a style can write. `offer`: the scripts it's offered for,
 // so a Latin name keeps its four styles and a Hebrew name gets its own four.
 export const FONTS = [
@@ -222,7 +230,15 @@ export const FONTS = [
   { id: 'playpen', name: 'Playpen Sans Hebrew', scripts: ['latin', 'hebrew'], offer: ['hebrew'], stack: ['Pared Playpen', 'Pared Ruqaa'] },
   { id: 'amatic', name: 'Amatic SC', scripts: ['latin', 'hebrew'], offer: ['hebrew'], stack: ['Pared Amatic', 'Pared Ruqaa'] },
   { id: 'solitreo', name: 'Solitreo', scripts: ['latin', 'hebrew'], offer: ['hebrew'], stack: ['Pared Solitreo', 'Pared Ruqaa'] },
+  { id: 'sans', name: 'Heebo', formal: true, generic: 'sans-serif', scripts: ['latin', 'hebrew', 'arabic'], offer: ['latin', 'hebrew', 'arabic'], stack: ['Pared Heebo', 'Pared Arabic Sans'] },
+  { id: 'serif', name: 'Frank Ruhl Libre', formal: true, generic: 'serif', scripts: ['latin', 'hebrew', 'arabic'], offer: ['latin', 'hebrew', 'arabic'], stack: ['Pared Frank Ruhl', 'Pared Naskh'] },
+  { id: 'david', name: 'David Libre', formal: true, generic: 'serif', scripts: ['latin', 'hebrew'], offer: ['latin', 'hebrew'], stack: ['Pared David', 'Pared Naskh'] },
 ];
+
+// The fonts for text typed on the page: the device's own plain font
+// (TEXT_FONT, the font of text placed before there was a choice), then the
+// formal styles.
+export const TEXT_FONTS = [{ id: 'plain', name: 'Arial' }, ...FONTS.filter((f) => f.formal)];
 
 // The styles offered for this text: those that can write all its letters
 // themselves (others would only show their fallback). All if none can.
@@ -245,7 +261,8 @@ function addFaces() {
   }
 }
 
-export const fontCss = (id, px) => `${px}px ${FONTS.find((f) => f.id === id).stack.map((f) => `"${f}"`).join(', ')}, cursive`;
+const fontFamily = (id) => { const f = FONTS.find((x) => x.id === id); return `${f.stack.map((n) => `"${n}"`).join(', ')}, ${f.generic ?? 'cursive'}`; };
+export const fontCss = (id, px) => `${px}px ${fontFamily(id)}`;
 
 const RTL_CHARS = /[֐-ࣿיִ-﷿ﹰ-ﻼ]/;
 const MARGIN = 0.12; // ems of room around the ink
@@ -258,10 +275,17 @@ function setupText(ctx, sig, px) {
 }
 
 // Wait until the faces for these letters are loaded, so measuring and
-// drawing use the handwriting font, not a fallback.
+// drawing use the chosen font, not a fallback.
 export async function loadFont(id, text) {
   addFaces();
   await document.fonts.load(fontCss(id, 40), text || 'a');
+}
+
+// A font for text on the page, in every script it has, so text can be
+// measured as it's typed (measuring can't wait for a download).
+export async function loadTextFont(id) {
+  if (!id || id === 'plain') return;
+  await loadFont(id, 'Aa\u05d0\u0628');
 }
 
 export async function typedSignature(text, font, color = INKS.black) {
@@ -295,19 +319,24 @@ function drawTyped(ctx, sig, w, h) {
 /* ---------- text and marks filled in on the page ---------- */
 
 export const TEXT_FONT = 'Arial, "Helvetica Neue", Helvetica, "Noto Sans", "Noto Sans Hebrew", "Noto Sans Arabic", sans-serif';
+// The CSS font family of a text item: its own font, or the plain one.
+export const textFamily = (sig) => (sig?.font && sig.font !== 'plain' && FONTS.some((f) => f.id === sig.font) ? fontFamily(sig.font) : TEXT_FONT);
 export const TEXT_LINE = 1.25; // line height, in ems
 export const TEXT_PAD = 0.1;   // ems of room around the text
 
-// Measured once, at a fixed size; drawn at any size.
-export function textItem(text, color = INKS.black) {
+// Measured once, at a fixed size; drawn at any size. `font`: one of
+// TEXT_FONTS (load it first, with loadTextFont).
+export function textItem(text, color = INKS.black, font = 'plain') {
   text = String(text).replace(/\r/g, '');
   const lines = text.split('\n');
+  const sig = { kind: 'text', text, color, lines: lines.length };
+  if (font && font !== 'plain') sig.font = font;
   const ctx = document.createElement('canvas').getContext('2d');
-  ctx.font = `100px ${TEXT_FONT}`;
+  ctx.font = `100px ${textFamily(sig)}`;
   // An empty box still has some width, so it can be seen and grabbed.
-  const w = Math.max(0.6, ...lines.map((l) => ctx.measureText(l).width / 100));
-  return { kind: 'text', text, color, lines: lines.length, w,
-    aspect: (w + 2 * TEXT_PAD) / (lines.length * TEXT_LINE + 2 * TEXT_PAD) };
+  sig.w = Math.max(0.6, ...lines.map((l) => ctx.measureText(l).width / 100));
+  sig.aspect = (sig.w + 2 * TEXT_PAD) / (lines.length * TEXT_LINE + 2 * TEXT_PAD);
+  return sig;
 }
 
 // Which way the text runs, by its first letter, as a field with dir="auto"
@@ -321,7 +350,7 @@ export function isRtlText(s) {
 function drawText(ctx, sig, w, h) {
   const px = h / (sig.lines * TEXT_LINE + 2 * TEXT_PAD);
   const rtl = isRtlText(sig.text);
-  ctx.font = `${px}px ${TEXT_FONT}`;
+  ctx.font = `${px}px ${textFamily(sig)}`;
   ctx.fillStyle = sig.color;
   ctx.textBaseline = 'middle';
   ctx.direction = rtl ? 'rtl' : 'ltr';
@@ -433,6 +462,7 @@ export async function renderSignature(sig, w, h) {
     await loadFont(sig.font, sig.text);
     drawTyped(ctx, sig, c.width, c.height);
   } else if (sig.kind === 'text') {
+    await loadTextFont(sig.font);
     drawText(ctx, sig, c.width, c.height);
   } else if (sig.kind === 'mark') {
     drawMark(ctx, sig, c.width, c.height);
