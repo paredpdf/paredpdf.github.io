@@ -316,6 +316,14 @@ select.form-field { padding: 0; }
 .mark-opts { margin: 0 0 8px; margin-inline-start: 26px; }
 .mark-opts .signame { margin-top: 4px; }
 .page-mark { position: absolute; z-index: 2; pointer-events: none; }
+/* Fill this form: the places found to write in, outlined until used. */
+.fill-form { margin-top: 4px; padding: 8px 10px; font-size: 14px; }
+.fill-form[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+#fillHint { margin: 4px 0 0 !important; }
+.fill-spot { position: absolute; z-index: 4; box-sizing: border-box; margin: 0; padding: 0; border: 1.5px dashed rgba(29, 99, 237, .75); border-radius: 2px; background: rgba(29, 99, 237, .08); cursor: pointer; }
+.fill-spot:hover { background: rgba(29, 99, 237, .2); }
+.fill-spot:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.fill-spot.fs-check { border-style: solid; }
 .form-hint { margin: 0 0 10px; color: var(--ink); }
 .sig.editing img, .sig.editing .sig-del, .sig.editing .sig-rs { visibility: hidden; }
 /* Typing on the page: outside the turning stage, so it reads upright, and

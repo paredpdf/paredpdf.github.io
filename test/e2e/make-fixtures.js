@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mupdf, photoPixmap, signedPdf, exifJpeg, formPdf } from '../fixtures.js';
+import { mupdf, photoPixmap, signedPdf, exifJpeg, formPdf, flatFormPdf } from '../fixtures.js';
 
 export const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), '.fixtures');
 export const SLIDE = { x: 253.6562, w: 334.6875 }; // a 9:16 slide centred on A4 landscape
@@ -90,6 +90,7 @@ export default function globalSetup() {
   fs.writeFileSync(path.join(FIXTURES, 'blank.png'), blankPhoto());
   fs.writeFileSync(path.join(FIXTURES, 'unsigned-field.pdf'), signedPdf(0, { unsigned: 1 }));
   fs.writeFileSync(path.join(FIXTURES, 'form.pdf'), formPdf());
+  fs.writeFileSync(path.join(FIXTURES, 'flat-form.pdf'), flatFormPdf());
   // Phone photos: a landscape-stored one the camera marked "turn a quarter
   // clockwise" (so it shows portrait), with its location; and a PNG.
   fs.writeFileSync(path.join(FIXTURES, 'turned-photo.jpg'), exifJpeg({ orientation: 6 }));

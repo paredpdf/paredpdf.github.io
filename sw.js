@@ -21,7 +21,7 @@ const NETWORK_TIMEOUT_MS = 4000;
 const STAMPED = VERSION !== 'dev';
 
 const APP_FILES = [
-  './', 'index.html', 'style.css', 'app.js', 'detect.js', 'pages.js', 'limits.js', 'i18n.js', 'sign.js', 'zip.js', 'images.js', 'marks.js', 'pdf-core.js', 'export-worker.js',
+  './', 'index.html', 'style.css', 'app.js', 'detect.js', 'pages.js', 'limits.js', 'i18n.js', 'sign.js', 'zip.js', 'images.js', 'marks.js', 'formspots.js', 'pdf-core.js', 'export-worker.js',
   'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 const VENDOR_FILES = [

@@ -1776,3 +1776,81 @@ test('a drag the first finger started is undone when a pinch begins', async ({ p
   await expect.poll(async () => parseInt(await page.locator('#zoomFit').textContent(), 10)).toBeGreaterThan(150);
   expect(await where()).toBe(moved);
 });
+
+/* ---------- fill a form that has no fields ---------- */
+
+const FLAT = path.join(FIXTURES, 'flat-form.pdf');
+
+test('looks for places to write on a flat form only when asked', async ({ page }) => {
+  await load(page, FLAT);
+  await expect(page.locator('#formHint')).toBeHidden(); // no real fields
+  await page.waitForTimeout(300);
+  await expect(page.locator('.fill-spot')).toHaveCount(0);
+  await page.click('#fillForm');
+  await expect(page.locator('#fillForm')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.fill-spot.fs-check')).toHaveCount(2);
+  await expect(page.locator('.fill-spot.fs-text')).toHaveCount(3);
+  await expect(page.locator('#fillHint')).toContainText('Tap an outlined box');
+  await page.click('#fillForm');
+  await expect(page.locator('#fillForm')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.fill-spot')).toHaveCount(0);
+  await expect(page.locator('#fillHint')).toBeHidden();
+});
+
+test('a tap on a place types there, and a tap on a checkbox ticks it', async ({ page }) => {
+  await load(page, FLAT);
+  await page.click('#fillForm');
+  const spots = page.locator('.fill-spot.fs-text');
+  await expect(spots).toHaveCount(3);
+  // The Name cell: the place furthest left on the top row.
+  const name = await spots.evaluateAll((ns) => {
+    const boxes = ns.map((n) => n.getBoundingClientRect());
+    const top = Math.min(...boxes.map((r) => r.y));
+    return boxes.reduce((best, r, i) => (Math.abs(r.y - top) < 2 && (best < 0 || r.x < boxes[best].x) ? i : best), -1);
+  });
+  await spots.nth(name).click();
+  await expect(page.locator('.text-edit')).toBeFocused();
+  await page.keyboard.type('Ada Lovelace');
+  await page.keyboard.press('Escape');
+  await expect(spots.filter({ visible: true })).toHaveCount(2); // used: its outline goes
+  const check = page.locator('.fill-spot.fs-check').first();
+  const cb = await check.boundingBox();
+  await check.click();
+  await expect(page.locator('.sig')).toHaveCount(2);
+  await expect(page.locator('.sig').nth(1)).toBeFocused();
+  await expect(page.locator('.sig').nth(1)).toHaveAttribute('aria-label', /^Check mark\./);
+  const tick = await page.locator('.sig').nth(1).boundingBox();
+  expect(Math.abs(tick.x + tick.width / 2 - (cb.x + cb.width / 2))).toBeLessThan(2);
+  expect(Math.abs(tick.y + tick.height / 2 - (cb.y + cb.height / 2))).toBeLessThan(2);
+  await expect(page.locator('.fill-spot.fs-check').filter({ visible: true })).toHaveCount(1);
+
+  // Exported where they were put: the text inside the Name cell, starting
+  // at its left; the tick over the first checkbox.
+  const [p0] = signatures(await download(page));
+  expect(p0.rects).toHaveLength(2);
+  const [text, mark] = p0.rects;
+  expect(text[0]).toBeGreaterThan(50);
+  expect(text[0]).toBeLessThan(56);
+  expect(text[1]).toBeGreaterThan(700);
+  expect(text[3]).toBeLessThan(729); // under the label
+  expect((mark[0] + mark[2]) / 2).toBeCloseTo(60 + 12 * 0.42, -1);
+  expect((mark[1] + mark[3]) / 2).toBeCloseTo(650 + 12 * 0.4, -1);
+});
+
+test('undo takes back what was put in a place, and its outline comes back', async ({ page }) => {
+  await load(page, FLAT);
+  await page.click('#fillForm');
+  await page.locator('.fill-spot.fs-check').first().click();
+  await expect(page.locator('.fill-spot.fs-check').filter({ visible: true })).toHaveCount(1);
+  await page.waitForTimeout(600);
+  await page.click('#undo');
+  await expect(page.locator('.sig')).toHaveCount(0);
+  await expect(page.locator('.fill-spot.fs-check').filter({ visible: true })).toHaveCount(2);
+});
+
+test('a page with real form fields offers no places over them', async ({ page }) => {
+  await load(page, FORM);
+  await page.click('#fillForm');
+  await expect(page.locator('#fillHint')).toContainText('No places to write');
+  await expect(page.locator('.fill-spot')).toHaveCount(0);
+});

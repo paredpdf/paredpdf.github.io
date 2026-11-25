@@ -248,3 +248,35 @@ export function formPdf() {
   doc.getTrailer().get('Root').put('AcroForm', form);
   return doc.saveToBuffer('').asUint8Array().slice();
 }
+
+// A form only printed to PDF, as many official forms are: no fields, just
+// drawn boxes, checkbox glyphs and a line to write on. Page 1 holds, in user
+// space: a row of two labelled cells (50..300 and 300..545, 700..740), two
+// ZapfDingbats checkboxes at x 60 and 140 on y 650, and a blank line from
+// 140 to 260 at y 598.
+export const FLAT_FORM = {
+  cells: [[50, 700, 300, 740], [300, 700, 545, 740]],
+  checks: [[60, 650], [140, 650]], checkSize: 12,
+  blank: [140, 598, 260],
+};
+export function flatFormPdf() {
+  const doc = new mupdf.PDFDocument();
+  const font = (name) => {
+    const f = doc.addObject(doc.newDictionary());
+    f.put('Type', doc.newName('Font'));
+    f.put('Subtype', doc.newName('Type1'));
+    f.put('BaseFont', doc.newName(name));
+    return f;
+  };
+  const content = [
+    'BT /F1 16 Tf 50 780 Td (Employee card) Tj ET',
+    '0.5 w 50 700 495 40 re S 300 700 m 300 740 l S',
+    'BT /F1 9 Tf 54 729 Td (Name) Tj ET',
+    'BT /F1 9 Tf 304 729 Td (Phone) Tj ET',
+    'BT /F2 12 Tf 60 650 Td (q) Tj ET BT /F1 11 Tf 76 651 Td (Yes) Tj ET',
+    'BT /F2 12 Tf 140 650 Td (q) Tj ET BT /F1 11 Tf 156 651 Td (No) Tj ET',
+    'BT /F1 11 Tf 60 600 Td (Date of birth) Tj ET 140 598 m 260 598 l S',
+  ].join('\n');
+  doc.insertPage(-1, doc.addPage([0, 0, 595, 842], 0, { Font: { F1: font('Helvetica'), F2: font('ZapfDingbats') } }, content));
+  return doc.saveToBuffer('compress=yes').asUint8Array().slice();
+}

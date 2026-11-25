@@ -8,6 +8,7 @@ import { isLargeForDevice, isMemoryError } from './limits.js';
 import { t, ltr, isRtl, lang, locale, setLang, pickLang } from './i18n.js';
 import { makeZip } from './zip.js';
 import { imagesToPdfs, isImageFile, isPdfFile } from './images.js';
+import { pageLines, textBoxes, findSpots } from './formspots.js';
 import { NUMBER_PT, NUMBER_LINE, textWidth, numberCanvas, watermarkCanvas, canvasPng, numberSpot } from './marks.js';
 import { INKS, fontsFor, createPad, imageToSignature, typedSignature, loadFont, fontCss, signaturePng, signaturePreview,
   textItem, markItem, isRtlText, TEXT_FONT, TEXT_LINE, TEXT_PAD, fieldPng } from './sign.js';
@@ -37,7 +38,7 @@ const el = Object.fromEntries([
   'signCard', 'addSign', 'signHint', 'signDlg', 'tabDraw', 'tabType', 'tabUpload', 'paneDraw', 'paneType', 'paneUpload', 'pad', 'sigFile', 'sigPick', 'sigImg',
   'sigName', 'fontChips',
   'sigErr', 'sigClear', 'sigCancel', 'sigUse', 'sigRemember', 'savedSigs', 'savedList', 'signDlgTitle',
-  'addInitials', 'addDate', 'copyAll', 'copyDone', 'typeHint', 'addText', 'addCheck', 'addCross', 'formHint',
+  'addInitials', 'addDate', 'copyAll', 'copyDone', 'typeHint', 'addText', 'addCheck', 'addCross', 'formHint', 'fillForm', 'fillHint',
   'zoomIn', 'zoomOut', 'zoomFit', 'marksCard', 'numOn', 'numOpts', 'numWhere', 'numStyle', 'wmOn', 'wmOpts', 'wmText',
 ].map((id) => [id, $(id)]));
 
@@ -72,6 +73,7 @@ function resetAll() {
   for (const d of state?.files ?? []) d.pdf.destroy();
   state = null;
   zoom = 1;
+  setFilling(false);
   steps = [];
   stepAt = -1;
   cancelEstimate();
@@ -140,6 +142,7 @@ async function open(files, passwords = []) {
     state.signs = []; // { page, sig, box } signatures placed on pages
     state.fields = new Map(); // page -> promise of its form fields (see fieldsOf)
     state.formValues = new Map(); // field key -> value, for fields changed here
+    state.spots = new Map(); // page -> promise of the places found to write in (see spotsOf)
     state.selected = new Uint8Array(state.n + 1).fill(1);
     await collectGroups(my);
     if (my !== session) return;
@@ -456,6 +459,7 @@ async function showPage(n) {
   placeOverlay();
   renderSigns();
   renderFields();
+  renderSpots();
   refreshPanel(); // the new page may have its own crop
 
   const my = session;
@@ -1384,6 +1388,127 @@ const viewToBox = (g, side, w, h) => (side ? [h / g.W, w / g.H] : [w / g.W, h / 
 // right on screen, for each turn of the page.
 const VIEW_CORNER = { 0: { tl: 'tl', tr: 'tr' }, 90: { tl: 'bl', tr: 'tl' }, 180: { tl: 'br', tr: 'bl' }, 270: { tl: 'tr', tr: 'br' } };
 
+/* ---------- fill a form that has no fields ---------- */
+
+// Many forms are only printed to PDF: their boxes and checkboxes are drawn,
+// not fields. On request, find the places to write from what the page
+// draws (see formspots.js) and outline them; a tap on one puts text or a ✓
+// there. Only on request: it's a guess, and it takes a moment per page.
+let filling = false;
+
+function setFilling(on) {
+  filling = on;
+  el.fillForm.setAttribute('aria-pressed', String(on));
+  el.fillForm.textContent = t(on ? 'fill.stop' : 'fill.start');
+  el.fillHint.hidden = !on;
+  renderSpots();
+}
+
+el.fillForm.addEventListener('click', () => { if (state) setFilling(!filling); });
+
+function spotsOf(p) {
+  if (!state.spots.has(p)) {
+    const found = findPageSpots(p);
+    found.then((list) => { found.list = list; });
+    state.spots.set(p, found);
+  }
+  return state.spots.get(p);
+}
+
+// The page's places to write, each with its box in the page's 0..1 units.
+// Places over a real form field are left out: the field is there to fill.
+async function findPageSpots(p) {
+  try {
+    const page = await getPage(p);
+    const [list, text] = await Promise.all([page.getOperatorList(), page.getTextContent()]);
+    const fontName = (id) => { try { return page.commonObjs.get(id)?.name ?? ''; } catch { return ''; } };
+    const spots = findSpots({
+      lines: pageLines(list.fnArray, list.argsArray, pdfjsLib.OPS), texts: textBoxes(text.items, fontName), view: page.view,
+    });
+    const vp = page.getViewport({ scale: 1 }), fields = await fieldsOf(p);
+    return spots.map((s) => {
+      const [ax, ay, bx, by] = vp.convertToViewportRectangle(s.rect);
+      return { ...s, box: { x0: Math.min(ax, bx) / vp.width, y0: Math.min(ay, by) / vp.height, x1: Math.max(ax, bx) / vp.width, y1: Math.max(ay, by) / vp.height } };
+    }).filter((s) => !fields.some((f) => boxesMeet(f.box, s.box)));
+  } catch {
+    return [];
+  }
+}
+
+const boxesMeet = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+
+async function renderSpots() {
+  for (const n of el.stage.querySelectorAll('.fill-spot')) n.remove();
+  if (!filling || !state) return;
+  const p = state.page, found = spotsOf(p);
+  if (!found.list) el.fillHint.textContent = t('fill.busy');
+  const spots = await found;
+  if (!filling || !state || state.page !== p) return;
+  for (const n of el.stage.querySelectorAll('.fill-spot')) n.remove(); // also any drawn by a call that finished first
+  el.fillHint.textContent = t(spots.length ? 'fill.hint' : 'fill.none');
+  for (const s of spots) {
+    const node = Object.assign(document.createElement('button'), { type: 'button', className: `fill-spot fs-${s.kind}` });
+    const label = t(s.kind === 'check' ? 'fill.spotCheck' : 'fill.spotText');
+    node.setAttribute('aria-label', label);
+    node.title = label;
+    node.spot = s;
+    setRect(node, s.box);
+    el.stage.append(node);
+  }
+  showUsedSpots();
+}
+
+// A place with something on it is used: its outline goes.
+function showUsedSpots() {
+  if (!filling || !state) return;
+  const items = state.signs.filter((x) => x.page === state.page);
+  for (const node of el.stage.querySelectorAll('.fill-spot')) {
+    const b = node.spot.box;
+    node.hidden = items.some((x) => {
+      const cx = (x.box.x0 + x.box.x1) / 2, cy = (x.box.y0 + x.box.y1) / 2;
+      return cx > b.x0 && cx < b.x1 && cy > b.y0 && cy < b.y1;
+    });
+  }
+}
+
+el.stage.addEventListener('click', (e) => {
+  const node = e.target.closest('.fill-spot');
+  if (node && state) fillSpot(node.spot);
+});
+
+// A ✓ in a checkbox, a little larger than the box, as if ticked by hand.
+// Text starts at the side its place reads from (the right, on a form in
+// Hebrew or Arabic), as tall as fits, and the typing starts at once.
+function fillSpot(s) {
+  const p = state.page, g = state.groupOf[p], turn = state.rot[p] || 0, side = turn % 180 !== 0, b = s.box;
+  const across = side ? (b.y1 - b.y0) * g.H : (b.x1 - b.x0) * g.W; // as shown, in points
+  const down = side ? (b.x1 - b.x0) * g.W : (b.y1 - b.y0) * g.H;
+  const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
+  if (s.kind === 'check') {
+    const sig = markItem('check', INKS[ink]), size = Math.min(across, down) * 1.25;
+    const [bw, bh] = viewToBox(g, side, size, size);
+    signNode(addItem(sig, { x0: cx - bw / 2, y0: cy - bh / 2, x1: cx + bw / 2, y1: cy + bh / 2 }))?.focus();
+    return;
+  }
+  const sig = textItem('', INKS[ink]);
+  const em = Math.max(5, Math.min(TEXT_PT, (down * 0.9) / (TEXT_LINE + 2 * TEXT_PAD)));
+  const [bw, bh] = viewToBox(g, side, em * (sig.w + 2 * TEXT_PAD), em * (sig.lines * TEXT_LINE + 2 * TEXT_PAD));
+  const align = s.rtl ? 'r' : 'l';
+  const corner = VIEW_CORNER[turn][align === 'r' ? 'tr' : 'tl'];
+  const x0 = side ? cx - bw / 2 : corner[1] === 'l' ? b.x0 : b.x1 - bw;
+  const y0 = side ? (corner[0] === 't' ? b.y0 : b.y1 - bh) : cy - bh / 2;
+  const item = addItem(sig, { x0, y0, x1: x0 + bw, y1: y0 + bh }, { align });
+  editText(item);
+}
+
+function addItem(sig, box, extra = {}) {
+  const item = { page: state.page, sig, ...extra };
+  item.box = clampSign(item, box);
+  state.signs.push(item);
+  renderSigns();
+  return item;
+}
+
 // Typing on the page. The text is typed in a field over the page, outside
 // the stage (so it reads upright on a turned page), and the box grows from
 // its starting corner as you type: top left, or top right for right-to-left
@@ -1427,8 +1552,9 @@ function textChanged() {
   const turn = state.rot[item.page] || 0;
   const sig = textItem(area.value, item.sig.color);
   const [bw, bh] = viewToBox(g, turn % 180 !== 0, em * (sig.w + 2 * TEXT_PAD), em * (sig.lines * TEXT_LINE + 2 * TEXT_PAD));
-  // Keep the corner it grows from where it is.
-  const corner = VIEW_CORNER[turn][isRtlText(area.value) ? 'tr' : 'tl'];
+  // Keep the corner it grows from where it is: the side its place on a
+  // form reads from, or else the side the text reads from.
+  const corner = VIEW_CORNER[turn][(item.align ? item.align === 'r' : isRtlText(area.value)) ? 'tr' : 'tl'];
   const [x0, x1] = corner[1] === 'l' ? [b.x0, b.x0 + bw] : [b.x1 - bw, b.x1];
   const [y0, y1] = corner[0] === 't' ? [b.y0, b.y0 + bh] : [b.y1 - bh, b.y1];
   item.sig = sig;
@@ -1453,7 +1579,7 @@ function layoutTextEditor() {
   area.style.width = '0';
   area.style.width = `${area.scrollWidth}px`;
   const r = node.getBoundingClientRect(), box = el.stageBox.getBoundingClientRect();
-  const rtl = isRtlText(area.value) || (!area.value && isRtl());
+  const rtl = item.align ? item.align === 'r' : isRtlText(area.value) || (!area.value && isRtl());
   area.style.top = `${r.top - box.top}px`;
   if (rtl) { area.style.left = 'auto'; area.style.right = `${box.right - r.right}px`; }
   else { area.style.right = 'auto'; area.style.left = `${r.left - box.left}px`; }
@@ -1653,6 +1779,7 @@ function renderSigns() {
   el.signHint.hidden = !state.signs.length;
   renderThumbSigns(state.page);
   if (textEdit) layoutTextEditor();
+  showUsedSpots();
 }
 
 // Typed ones (names, initials, dates, text) say what they say.
@@ -1734,6 +1861,7 @@ const endSignDrag = (e) => {
   // A tap on text that was already selected (a second tap, or a double
   // click) opens it for typing; on small text the tap may land on its
   // resize button, which does nothing without a drag.
+  showUsedSpots();
   const still = Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 5;
   if (e.type === 'pointerup' && still && d.wasFocused && d.item.sig.kind === 'text') editText(d.item);
 };
@@ -2419,6 +2547,8 @@ function rerender() {
   if (!el.pwCard.hidden) showPwText();
   if (state) { showStripHint(); renderHidden(); }
   if (state) { renderSigns(); showNumStyles(); schedulePageMarks(); }
+  el.fillForm.textContent = t(filling ? 'fill.stop' : 'fill.start');
+  renderSpots();
   showSigWarn();
   showCompressHint();
   showEstimate();
