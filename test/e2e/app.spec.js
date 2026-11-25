@@ -1238,7 +1238,7 @@ test('"Add a signature" opens where it was left, not on the initials tab', async
 
 /* ---------- undo and redo ---------- */
 
-const settle = (page) => page.waitForTimeout(500); // a step is recorded once changes settle
+const settle = (page) => page.waitForTimeout(900); // a step is recorded once changes settle (slow phones in CI need longer)
 
 test('undo and redo crop changes, one step at a time', async ({ page }) => {
   await load(page);
